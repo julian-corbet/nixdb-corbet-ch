@@ -683,7 +683,7 @@ in
       {
         example-operator = {
           operator = "cnpg";
-          slot = 100;         # a value the consumer supplies; instances follow above it
+          slot = 33;          # a value the consumer supplies; instances follow above it
           manifests = [ (builtins.readFile ./rendered-operator-chart.yaml) ];
         };
       }
@@ -716,13 +716,13 @@ in
         example-pg-older = {
           engine = "postgres";
           version = "17";
-          slot = 101;
+          slot = 34;
           manifests = [ (builtins.readFile ./cluster-older.yaml) ];
         };
         example-pg-newer = {
           engine = "postgres";
           version = "18";
-          slot = 102;
+          slot = 35;
           manifests = [ (builtins.readFile ./cluster-newer.yaml) ];
         };
 
@@ -730,8 +730,8 @@ in
         example-mariadb = {
           engine = "mariadb";
           version = "11.8";
-          slot = 107;
-          state.data.hostPath = "/example/apps/dbs/mariadb";
+          slot = 36;
+          state.data.hostPath = "/example/state/mariadb";
           credentials = { secret = "example-mariadb-root"; key = "rootPassword"; };
         };
       }
@@ -803,7 +803,7 @@ in
           tool = "whodb";
           version = "0.59.0";
           exposure = "nb";
-          state.data.hostPath = "/example/apps/dbs/browser";
+          state.data.hostPath = "/example/state/browser";
           envFromSecrets = [ "example-browser-connections" ];
         };
       }

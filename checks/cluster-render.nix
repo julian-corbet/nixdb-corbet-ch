@@ -85,7 +85,7 @@ pkgs.runCommand "nixdb-cluster-render"
   echo "== state: mounted where the ENGINE writes, backed by what the consumer supplied =="
   check "mount path is the catalogue's"  "/var/lib/mysql" \
     "$(y '.spec.template.spec.containers[0].volumeMounts[0].mountPath' $SQL_D)"
-  check "backing is the declaration's"   "/example/apps/dbs/mysql" \
+  check "backing is the declaration's"   "/example/state/mysql" \
     "$(y '.spec.template.spec.volumes[0].hostPath.path' $SQL_D)"
   check "a data directory must already exist" "Directory" \
     "$(y '.spec.template.spec.volumes[0].hostPath.type' $SQL_D)"

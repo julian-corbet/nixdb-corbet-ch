@@ -26,15 +26,17 @@ plane, never a database). Ordinary packages with verified `arch`/`nixpkgs` names
 
 ```nix
 # Cluster plane — composed into a nixidy environment ALONGSIDE nixk3s's app grammar.
-nixdb.clusterPlatform = { namespace = "dbs"; project = "data"; origin = "nixdb"; };
+# Every value below is a fleet fact the consumer supplies; this repository ships none of them.
+nixdb.clusterPlatform = { namespace = "…"; project = "…"; origin = "nixdb"; };
 
-nixdb.operators.pg-operator = { operator = "cnpg"; slot = 100; manifests = [ … ]; };
+nixdb.operators.pg-operator = { operator = "cnpg"; slot = N; manifests = [ … ]; };
 nixdb.instances = {
-  pg17 = { engine = "postgres"; version = "17"; slot = 101; manifests = [ … ]; };
-  pg18 = { engine = "postgres"; version = "18"; slot = 102; manifests = [ … ]; };
-  sql  = { engine = "mariadb";  version = "11.8"; slot = 107;
-           state.data.hostPath = "/…/mariadb";
-           credentials = { secret = "mariadb-root"; key = "rootPassword"; }; };
+  # A ladder: two majors, side by side, permanently. Both above the operator's slot.
+  postgres-older = { engine = "postgres"; version = "17"; slot = N + 1; manifests = [ … ]; };
+  postgres-newer = { engine = "postgres"; version = "18"; slot = N + 2; manifests = [ … ]; };
+  sql = { engine = "mariadb"; version = "11.8"; slot = …;
+          state.data.hostPath = "…";                       # where inside the container is ours
+          credentials = { secret = "…"; key = "…"; }; };    # by name, never by value
 };
 nixdb.tools.browser = { tool = "whodb"; version = "…"; exposure = "nb"; … };
 

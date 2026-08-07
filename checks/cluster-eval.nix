@@ -48,26 +48,26 @@ let
   goodTier = {
     nixdb.operators.op = {
       operator = "cnpg";
-      slot = 100;
+      slot = 33;
       manifests = [ "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: op\n  namespace: example-dbs\n" ];
     };
     nixdb.instances = {
       pg-older = {
         engine = "postgres";
         version = "17";
-        slot = 101;
+        slot = 34;
         manifests = [ "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata:\n  name: pg-older\n  namespace: example-dbs\nspec:\n  instances: 1\n" ];
       };
       pg-newer = {
         engine = "postgres";
         version = "18";
-        slot = 102;
+        slot = 35;
         manifests = [ "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata:\n  name: pg-newer\n  namespace: example-dbs\nspec:\n  instances: 1\n" ];
       };
       sql = {
         engine = "mariadb";
         version = "11.8";
-        slot = 107;
+        slot = 36;
         createNamespace = true;
         state.data.hostPath = "/example/data/sql";
         credentials = { secret = "example-sql-root"; key = "rootPassword"; };
@@ -78,7 +78,7 @@ let
       version = "0.0.0";
       namespace = "example-browser";
       createNamespace = true;
-      slot = 110;
+      slot = 40;
       state.data.hostPath = "/example/data/browser";
       envFromSecrets = [ "example-browser-connections" ];
     };
@@ -114,7 +114,7 @@ let
 
     # THE ORDERING GUARD: the operator above the instances it manages.
     operator-ordered-above-its-instances =
-      lib.recursiveUpdate goodTier { nixdb.operators.op.slot = lib.mkForce 105; };
+      lib.recursiveUpdate goodTier { nixdb.operators.op.slot = lib.mkForce 39; };
 
     # Every directory the engine writes must be backed by something. The multi-model engine writes
     # three, and an engine that comes up with two of them mounted looks healthy.
@@ -123,7 +123,7 @@ let
         nixdb.instances.multimodel = {
           engine = "arcadedb";
           version = "26.5.1";
-          slot = 108;
+          slot = 37;
           state.data.hostPath = "/example/data/multimodel";
         };
       };
@@ -141,14 +141,14 @@ let
         nixdb.instances.docs = {
           engine = "mongo";
           version = "8.0";
-          slot = 106;
+          slot = 38;
           state.data.hostPath = "/example/data/docs";
           credentials = { secret = "example-docs-root"; key = "password"; };
         };
       };
 
     two-workloads-on-one-slot =
-      lib.recursiveUpdate goodTier { nixdb.tools.browser.slot = lib.mkForce 107; };
+      lib.recursiveUpdate goodTier { nixdb.tools.browser.slot = lib.mkForce 36; };
 
     two-workloads-creating-one-namespace =
       lib.recursiveUpdate goodTier { nixdb.tools.browser.namespace = lib.mkForce "example-dbs"; };
@@ -174,8 +174,8 @@ let
   orderingMessageNames =
     lib.hasInfix "`op`" orderingMessage
     && (lib.hasInfix "`pg-older`" orderingMessage || lib.hasInfix "`pg-newer`" orderingMessage)
-    && lib.hasInfix "105" orderingMessage
-    && (lib.hasInfix "101" orderingMessage || lib.hasInfix "102" orderingMessage);
+    && lib.hasInfix "39" orderingMessage
+    && (lib.hasInfix "34" orderingMessage || lib.hasInfix "35" orderingMessage);
 
   # The unbacked-directory refusal has to say WHICH directories the engine writes and where, or the
   # reader has to go and find that out from somewhere else -- which is the whole failure this
@@ -241,8 +241,8 @@ let
     # THE LADDER. Two majors of one engine, side by side, and nothing anywhere decides which is
     # current -- both are ordinary workloads with their own identity.
     "two rungs of one ladder are two independent workloads" =
-      goodCfg.nixdb.slots.pg-older == 101
-      && goodCfg.nixdb.slots.pg-newer == 102
+      goodCfg.nixdb.slots.pg-older == 34
+      && goodCfg.nixdb.slots.pg-newer == 35
       && goodCfg.applications.pg-older.namespace == goodCfg.applications.pg-newer.namespace;
 
     # The renderer normalizes both of these into the strings it will emit, which is why they are
@@ -252,7 +252,7 @@ let
       && goodCfg.applications.pg-newer.compareOptions.serverSideDiff == "ServerSideDiff=true";
 
     "the slot report covers every workload that claims one, on both sides of the render split" =
-      goodCfg.nixdb.slots == { op = 100; pg-older = 101; pg-newer = 102; sql = 107; browser = 110; };
+      goodCfg.nixdb.slots == { op = 33; pg-older = 34; pg-newer = 35; sql = 36; browser = 40; };
 
     "the operator's chart coordinates are published WITHOUT a version -- a version here would be a second pin nothing keeps honest" =
       goodCfg.nixdb.operatorCharts.op == {
@@ -265,7 +265,7 @@ let
         nixdb.clusterPlatform.origin = "nixdb";
         nixk3s.addressing = {
           enable = true;
-          bands.example-data = { base = 96; size = 32; };
+          bands.example-data = { base = 32; size = 16; };
           bindings.nixdb = "example-data";
         };
       })).config.nixk3s.apps.sql.origin == "nixdb";

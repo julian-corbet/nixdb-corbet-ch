@@ -32,8 +32,8 @@
   nixk3s.addressing = {
     enable = true;
     bands.example-data = {
-      base = 96;
-      size = 32;
+      base = 32;
+      size = 16;
       description = "the data tier";
     };
     bindings.nixdb = "example-data";
@@ -51,7 +51,7 @@
   # here in that order deliberately, because the module refuses the inverted one.
   nixdb.operators.example-pg-operator = {
     operator = "cnpg";
-    slot = 100;
+    slot = 33;
     # Stands in for the operator's own chart output. A real consumer reads its rendered chart in
     # here, or leaves this empty and deploys the chart from its own application — the coordinates
     # to build one with are published at `nixdb.operatorCharts`.
@@ -92,7 +92,7 @@
     example-pg-older = {
       engine = "postgres";
       version = "17";
-      slot = 101;
+      slot = 34;
       manifests = [
         ''
           apiVersion: postgresql.cnpg.io/v1
@@ -114,7 +114,7 @@
     example-pg-newer = {
       engine = "postgres";
       version = "18";
-      slot = 102;
+      slot = 35;
       manifests = [
         ''
           apiVersion: postgresql.cnpg.io/v1
@@ -137,11 +137,11 @@
     example-mysql = {
       engine = "mariadb";
       version = "11.8";
-      slot = 107;
+      slot = 36;
       createNamespace = true;
       # Deliberately tag-only, so the render sees the grammar's unpinned-image warning fire as well
       # as the pinned path further down.
-      state.data.hostPath = "/example/apps/dbs/mysql";
+      state.data.hostPath = "/example/state/mysql";
       credentials = { secret = "example-mysql-root"; key = "rootPassword"; };
     };
 
@@ -151,11 +151,11 @@
     example-multimodel = {
       engine = "arcadedb";
       version = "26.5.1";
-      slot = 108;
+      slot = 37;
       state = {
-        data.hostPath = "/example/apps/dbs/multimodel/databases";
-        config = { hostPath = "/example/apps/dbs/multimodel/config"; hostPathType = "DirectoryOrCreate"; };
-        backup = { hostPath = "/example/apps/dbs/multimodel/backups"; hostPathType = "DirectoryOrCreate"; };
+        data.hostPath = "/example/state/multimodel/databases";
+        config = { hostPath = "/example/state/multimodel/config"; hostPathType = "DirectoryOrCreate"; };
+        backup = { hostPath = "/example/state/multimodel/backups"; hostPathType = "DirectoryOrCreate"; };
       };
       credentials = { secret = "example-multimodel-root"; key = "rootPassword"; };
       env.JAVA_OPTS = "-Darcadedb.server.rootPassword=$(ROOT_PW) -Darcadedb.server.databaseDirectory=/arcade_db";
@@ -172,8 +172,8 @@
     namespace = "example-browser";
     createNamespace = true;
     exposure = "nb";
-    slot = 110;
-    state.data.hostPath = "/example/apps/dbs/browser";
+    slot = 40;
+    state.data.hostPath = "/example/state/browser";
     envFromSecrets = [ "example-browser-connections" ];
   };
 }
