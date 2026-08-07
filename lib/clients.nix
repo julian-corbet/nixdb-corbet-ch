@@ -1,212 +1,124 @@
 #
-# The client catalogue: what a PERSON installs on a host in order to talk to the tier. Two groups,
-# matching the two kinds of thing the cluster catalogue holds:
+# The client catalogue: what a PERSON installs on a host in order to work with databases.
+#
+# ── IT IS EMPTY, AND THAT IS A STATE RATHER THAN AN OVERSIGHT ──────────────────────────────────
+#
+# Both groups below are declared and both are empty. Nothing here is a gap waiting to be filled in
+# by whoever reads this file next: WHICH PACKAGE BELONGS TO WHICH REPOSITORY IS NOT A QUESTION
+# THIS FILE GETS TO ANSWER. It is assigned, per package, by the person who owns the package set,
+# and a catalogue that guessed would quietly take a package out of the repository that has it today
+# — where it is already declared, already verified and already installed on real hosts.
+#
+# So the surface is built and the shelf is bare. ../modules/clients.nix resolves it, both host
+# backends consume it, and ../checks/clients-eval.nix proves the whole path resolves an empty
+# selection to nothing on every plane. Adding the first package is then one entry in this file and
+# nothing else — which is the entire point of building the surface before there is anything to put
+# on it.
+#
+# ── THE TWO GROUPS, AND WHY THEY ARE TWO ───────────────────────────────────────────────────────
 #
 #   `wire`      speaks one engine's wire protocol. A shell you point at a running database.
-#   `operator`  drives an operator's control plane. Not a database client at all -- it asks the
-#               operator about the instances it manages, and tells it to do things to them.
+#   `operator`  drives an operator's control plane. Not a database client at all — it asks the
+#               operator about the instances it manages, and tells it to do things to them. It
+#               never opens a connection to a database, and a host may well want exactly one of
+#               the two kinds.
 #
-# THE PLACEMENT RULE, and the reason this catalogue is small:
+# The split is by WHAT A TOOL IS, not by what it touches — the same test the universal terminal
+# shelf applies to its own groups. A third kind is clearly out there and is deliberately not
+# declared yet: an inspector that opens a database FILE with no server involved at all. That is a
+# different thing again from both groups above, and declaring a group for it now would be
+# machinery with nothing to decide, plus an implicit claim on packages nobody has assigned here.
 #
-#   Does the tool speak ONE engine's protocol (or drive ONE operator), so that a host with none of
-#   that engine has no use for it?
-#     yes -> here
-#     no  -> the universal terminal-tool shelf (nixsh), which is where anything a host reaches for
-#            regardless of what it runs already lives
+# ── WHAT IS ALREADY SOMEWHERE ELSE ─────────────────────────────────────────────────────────────
 #
-# CONSIDERED AND EXCLUDED, named rather than silently left out so the next candidate is decidable:
+# Named so that nobody re-derives it, and stated as WHERE THEY ARE rather than as where they
+# belong — the difference matters, because the second is not this repository's call:
 #
-#   - the SQLite shell. Engine-specific by the letter of the rule and universal by every other
-#     measure: it opens a file, needs no server, and is how half the services on any host are
-#     actually debugged. It is already catalogued on the universal shelf, and this family's
-#     one-package-one-catalogue rule makes a second entry a collision rather than a redundancy --
-#     both feed the same package list on a NixOS host.
-#   - multi-engine TUIs and universal SQL command lines. They speak every protocol, which is
-#     exactly the property that fails the rule above: a host with no databases at all still has a
-#     use for one. Same shelf, same reasoning, and one of them is already catalogued there.
-#   - third-party enhanced REPLs for a single engine (auto-completion, syntax highlighting).
-#     Eligible by the rule -- they do speak exactly one protocol -- and deliberately not catalogued
-#     yet. What this catalogue holds is the shell the ENGINE ITSELF ships, the one every upstream
-#     document assumes you are typing into, one per protocol family. That is a scope decision, not
-#     a boundary one, and an entry may be added the day somebody actually wants it.
+#   - the SQLite shell and the multi-engine terminal browsers are catalogued today in the
+#     universal terminal-tool shelf, in its structured-data group. They are declared, verified and
+#     installed from there.
+#   - local database FILE inspectors — the ones that open a single embedded database on disk with
+#     no server anywhere — are catalogued today in the development-tooling repository.
+#   - engine wire shells and multi-engine command lines are, at the time of writing, catalogued
+#     NOWHERE in this family.
 #
-# ── FIELDS ─────────────────────────────────────────────────────────────────────────────────────
+# ONE PACKAGE, ONE CATALOGUE is the family rule, and it is why none of the above appears below: on
+# a NixOS host every catalogue feeds the same package list, so a second entry for one package is a
+# collision rather than a redundancy. Whether any of them should MOVE here one day is a decision
+# for whoever assigns packages to repositories. This file records the boundary as it stands; it
+# does not argue for redrawing it, and it must not be read as a claim in either direction.
+#
+# ── FIELDS, for the day there is an entry ──────────────────────────────────────────────────────
+#
+# Documented now rather than invented later, because the checks and both backends already consume
+# them and every one of them exists for a measured reason:
 #
 # `arch`      the pacman package name.
 # `aur`       (default false) the name lives in the AUR rather than an official Arch repository.
 #             Load-bearing in one direction only, and fatally: `pacman -S` resolves a transaction
 #             ATOMICALLY, so ONE AUR name in a pacman list fails the whole thing with "target not
 #             found" and takes every unrelated package in the same converge down with it. The two
-#             lists ../modules/clients.nix publishes are separate for exactly this reason, and that
-#             they never intersect is asserted.
-# `nixpkgs`   the nixpkgs attribute, as a dotted path for a nested one.
-# `binary`    the command it actually installs. NOT always the package name -- see every entry
-#             below, none of which matches its own package name on both platforms.
-# `speaks`    (`wire` group) the engine family this client's protocol belongs to. Cross-checked
-#             against ./engines.nix: an engine naming a client that speaks something else fails
-#             `nix flake check`.
-# `operates`  (`operator` group) the operator key this plugin drives, cross-checked the same way.
+#             lists ../modules/clients.nix publishes are separate for exactly this reason, and
+#             that they never intersect is asserted.
+# `nixpkgs`   the nixpkgs attribute, as a dotted path for a nested one. A dotted path is the
+#             expected shape rather than the exception here — see the studies.
+# `binary`    the command it actually installs. NOT always the package name, and in this subject
+#             usually not: of the four candidates verified so far (see below) not one matches its
+#             own package name on both platforms.
+# `speaks`    (`wire` group) the engine family this client's protocol belongs to, matching the
+#             `wire` field of ../lib/engines.nix. THE REFERENCE POINTS THIS WAY ROUND on purpose:
+#             an engine names a protocol, never a package, so the cluster catalogue cannot break
+#             when a package is assigned somewhere else.
+# `operates`  (`operator` group) the operator key this plugin drives, from ../lib/engines.nix.
 # `installsServerOnNixos`
 #             (default false) the nixpkgs attribute additionally installs the ENGINE's server
-#             binaries, where the Arch package is client-only. Exactly one entry needs it, and it
-#             is a field rather than a sentence in a note because ../modules/nixos.nix warns about
-#             it at eval time.
+#             binaries, where the Arch package is client-only. Reserved rather than speculative:
+#             it is measured, and ../studies/psql-is-in-postgresql-libs-not-postgresql.md is the
+#             evidence — the asymmetry cannot be removed, because nixpkgs has no client-only
+#             attribute to switch to. ../modules/nixos.nix warns from it.
 # `note`      what the entry is, and every trap in getting it installed.
 #
-# ── VERIFIED, NOT GUESSED ──────────────────────────────────────────────────────────────────────
+# ── THE VERIFICATION CONTRACT AN ENTRY MUST MEET ───────────────────────────────────────────────
 #
-# Every pair below was checked on 2026-08-07 against FOUR independent sources, because no two of
-# them answer the same question and three of the four entries were wrong under at least one naive
-# guess:
+# FOUR SOURCES, because no two of them answer the same question:
 #
 #   - `pacman -Si <name>` on a live Arch-derivative system. Says what a name resolves to HERE,
-#     which is not the same as what upstream Arch ships.
+#     which is not the same as what upstream Arch ships. NEVER sufficient on its own.
 #   - archlinux.org's package search API (`/packages/search/json/?name=<name>`), which IS upstream
 #     Arch and knows nothing about a derivative's extra repositories. The only authority for
 #     `aur = false`.
 #   - the AUR RPC (`https://aur.archlinux.org/rpc/v5/info?arg[]=<name>`). The only authority for
 #     `aur = true`.
-#   - the nixpkgs attribute FORCED, not merely looked up: `builtins.seq p.drvPath`. `hasAttrByPath`
-#     cannot distinguish a live attribute from a rename-to-throw, and this catalogue found two of
-#     those in one sitting -- see ../studies/mariadb-client-and-mysql-client-both-throw.md.
+#   - the nixpkgs attribute FORCED: `builtins.seq p.drvPath`. `hasAttrByPath` cannot distinguish a
+#     live attribute from a rename-to-throw.
 #
-# Plus two cross-checks that a name existing on both platforms cannot pass on its own:
+# Plus two cross-checks a name existing on both platforms cannot pass on its own: `meta.homepage`
+# against pacman's `URL`, so a pair that resolves on both platforms while pointing at two DIFFERENT
+# projects is caught; and THE COMMAND SURFACE, by listing `bin/` of the realized store path against
+# the Arch package's own file list, because two names for the same project at the same version can
+# install different commands.
 #
-#   - `meta.homepage` against pacman's `URL`, so a pair that resolves on both platforms while
-#     pointing at two DIFFERENT projects is caught rather than assumed correct.
-#   - THE COMMAND SURFACE, by listing `bin/` of the realized store path against the Arch package's
-#     own file list. Two names for the same project at the same version can install different
-#     commands, and the pair that looks most correct by homepage is exactly where that hides. Half
-#     the entries below carry a finding that only this cross-check produces.
+# ../experiments/verify-package-names.sh runs all of it, reading the names out of THIS file.
 #
-# ../experiments/verify-package-names.sh reproduces all of it, reading the names out of THIS file
-# rather than a second hand-kept list.
+# ── ALREADY VERIFIED, NOT YET CATALOGUED ───────────────────────────────────────────────────────
+#
+# Four likely candidates were put through the whole contract above on 2026-08-07, before it was
+# settled that assignment is not this repository's to make. The results are kept — in
+# ../studies/ — because they cost real time, they do not go stale quickly, and they make the
+# assignment decision cheaper for whoever makes it. Two of the four are outright traps:
+#
+#   - the Postgres shell's Arch package is named for a LIBRARY, while the package named for the
+#     project is the server and contains no shell at all; and nixpkgs makes no such split, so the
+#     same selection installs a database server there. That is what `installsServerOnNixos` is for.
+#   - both obvious nixpkgs attributes for the MySQL-protocol client exist and both THROW, and the
+#     bare product attribute is the server. Only forcing the derivation finds any of it.
+#
+# Recording a finding is not claiming a package. Nothing below is declared.
 { ... }:
 {
   # ── Wire clients: a shell for one engine's protocol ──────────────────────────────────────────
-  wire = {
-    psql = {
-      arch = "postgresql-libs";
-      nixpkgs = "postgresql";
-      binary = "psql";
-      speaks = "postgres";
-      installsServerOnNixos = true;
-
-      note = ''
-        PostgreSQL's own interactive terminal. Also the client for anything speaking the Postgres
-        wire protocol, which in this catalogue includes the multi-model engine.
-
-        THE ARCH PACKAGE IS `postgresql-libs`, NOT `postgresql`, and getting this wrong is the
-        loudest trap in the file. Upstream Arch splits the project the way a distribution does:
-        `postgresql` is the SERVER (initdb, postgres, pg_ctl, pg_upgrade -- and no psql at all),
-        while `postgresql-libs` carries libpq and the client binaries, psql among them. Installing
-        the obvious name on a workstation therefore installs a database server, adds a system user
-        and a service, and still leaves the command that was wanted missing. Verified from the
-        package file lists rather than assumed -- see
-        ../studies/psql-is-in-postgresql-libs-not-postgresql.md.
-
-        NIXPKGS DOES NOT MAKE THAT SPLIT, and the asymmetry is real rather than cosmetic.
-        `pkgs.postgresql` is one derivation carrying the client AND the server in the same `out`
-        (verified by listing `bin/`: psql sits beside postgres, initdb and pg_ctl), so selecting
-        this entry on NixOS puts server binaries on PATH that the Arch host will not have.
-        `installsServerOnNixos` records that, and ../modules/nixos.nix warns rather than leaving
-        it to be discovered.
-
-        AND THERE IS NO CLIENT-ONLY ALTERNATIVE TO REACH FOR. `pkgs.libpq` exists and is the
-        obvious guess -- it is the C library and nothing else: the realized path has no `bin/`
-        directory at all. It cannot substitute here.
-      '';
-    };
-
-    mariadb = {
-      arch = "mariadb-clients";
-      nixpkgs = "mariadb.client";
-      binary = "mariadb";
-      speaks = "mysql";
-
-      note = ''
-        MariaDB's own client, which is also the client for anything speaking the MySQL protocol.
-        Installs BOTH commands: `mariadb` (the current name) and `mysql` (the compatibility name),
-        on both platforms -- confirmed by listing `bin/` on the realized nixpkgs path and the Arch
-        package's file list, which agree. Scripts written against either name keep working.
-
-        THE NIXPKGS ATTRIBUTE IS NESTED, and both flat guesses are booby-trapped. `mariadb-client`
-        and `mysql-client` each exist as attributes and each THROWS when evaluated -- one says it
-        was renamed, the other that it was replaced, both pointing at `mariadb.client`. An
-        existence check passes on either and the build then fails; only forcing the derivation
-        finds it. Written up in
-        ../studies/mariadb-client-and-mysql-client-both-throw.md, because it is the exact failure
-        mode this catalogue's verification exists to catch.
-
-        The bare `mariadb` attribute is not this: it is the SERVER (its derivation is literally
-        named mariadb-server). `mariadb.client` is a separate output of the same source.
-
-        THE TWO PLATFORMS ARE ON DIFFERENT MAJORS, which is a fact about the distributions rather
-        than a mistake here, and harmless for a client: the wire protocol is stable across these
-        majors in both directions, and a newer client talks to an older server routinely.
-      '';
-    };
-
-    mongosh = {
-      arch = "mongosh-bin";
-      aur = true;
-      nixpkgs = "mongosh";
-      binary = "mongosh";
-      speaks = "mongodb";
-
-      note = ''
-        MongoDB's current shell -- a JavaScript REPL against a running instance, and the only
-        client the engine's own documentation assumes.
-
-        AUR, EVERYWHERE, AND NOT BY OVERSIGHT. Upstream Arch packages nothing MongoDB at all: the
-        search API returns zero results for this name and for the database itself, because the
-        project's licence took it out of the official repositories years ago and it has not come
-        back. `pacman -Si` finds it in no derivative repository either, so unlike an entry that is
-        AUR upstream and repository-provided on a derivative, there is nothing to lift here: this
-        is the whole answer on every Arch-family host.
-
-        `-bin` IS THE ENTRY, and the choice is deliberate rather than incidental. Two AUR packages
-        build this shell: one compiles it and one installs the vendor's own build. The vendor build
-        is the far better maintained of the two (about six times the votes) and is what upstream
-        ships anyway -- this is a Node application whose from-source build has no advantage to
-        offer. The package name carries the `-bin` suffix; the command it installs does not.
-
-        Both platforms are on the same version, and the AUR package's upstream URL and the nixpkgs
-        homepage resolve to the same project.
-      '';
-    };
-  };
+  wire = { };
 
   # ── Operator clients: drives an operator's control plane, not a database ─────────────────────
-  operator = {
-    kubectl-cnpg = {
-      arch = "kubectl-cnpg";
-      aur = true;
-      nixpkgs = "kubectl-cnpg";
-      binary = "kubectl-cnpg";
-      operates = "cnpg";
-
-      note = ''
-        The PostgreSQL operator's own kubectl plugin: reports on the instances it manages, and
-        performs the operations that must go through the operator rather than around it --
-        promoting a replica, requesting a switchover, restarting an instance, collecting a support
-        bundle.
-
-        NOT A DATABASE CLIENT, which is why it is in its own group. It never opens a connection to
-        Postgres; it talks to the Kubernetes API and to the operator. A host that runs the psql
-        entry above and this one is doing two unrelated things, and a host may well want exactly
-        one of them.
-
-        AUR on Arch (present in the AUR, absent from upstream Arch's repositories and from every
-        derivative repository checked), plain `kubectl-cnpg` in nixpkgs, same version on both, and
-        the AUR package's upstream URL is the operator's own repository -- the same project the
-        nixpkgs homepage names. The command matches the package name on both platforms, which is
-        worth stating only because no other entry in this file manages that.
-
-        A kubectl PLUGIN, so it is found by being on PATH under this name and invoked as
-        `kubectl cnpg ...`. Installing it without kubectl present leaves a working standalone
-        binary and no plugin.
-      '';
-    };
-  };
+  operator = { };
 }

@@ -7,14 +7,20 @@
 # system with a different set of options; a NixOS host composing this file gets the client surface
 # and nothing else. That is the boundary rather than a gap -- see ./cluster.nix.
 #
+# THE CATALOGUE IT INSTALLS FROM IS EMPTY TODAY, so this backend installs nothing -- see
+# ../modules/clients.nix's own header for why the plane exists ahead of the packages that will land
+# on it. Everything below is the behaviour the first entry meets, written once rather than
+# discovered later.
+#
 # EVERY ATTRIBUTE IS FORCE-EVALUATED, not merely looked up, and the reason is measured rather than
 # theoretical: nixpkgs converts a renamed package into `<oldName> = throw "renamed to ...";`, which
 # keeps the key present and only fails when the value is forced -- which is exactly what building
-# `environment.systemPackages` does. This catalogue contains two names that behave that way (see
-# ../studies/mariadb-client-and-mysql-client-both-throw.md), so an existence check here would ship
-# a host configuration that evaluates and then fails to build. `tryEval` turns a stale mapping into
-# a skip plus a warning instead of taking the whole system evaluation down: ../lib/clients.nix is a
-# data table, and one stale row in it should not be able to make a machine unbuildable.
+# `environment.systemPackages` does. Two of the four candidate names verified for this subject
+# behave that way (see ../studies/mariadb-client-and-mysql-client-both-throw.md), so an existence
+# check here would ship a host configuration that evaluates and then fails to build. `tryEval`
+# turns a stale mapping into a skip plus a warning instead of taking the whole system evaluation
+# down: ../lib/clients.nix is a data table, and one stale row in it should not be able to make a
+# machine unbuildable.
 { config, lib, pkgs, ... }:
 let
   cfg = config.nixdb.clients;

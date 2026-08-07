@@ -1,19 +1,39 @@
 # Evaluates modules/clients.nix for real against `lib.evalModules` and asserts what it resolves,
-# plus the integrity of BOTH catalogues and the cross-reference between them.
+# plus the integrity of both catalogues and the direction of the reference between them.
 #
 # Here for the reason every sibling states for its own version of this file: `nix flake check` does
 # not evaluate `nixosModules`/`systemManagerModules` on its own, so a green check on this repository
 # without it would prove nothing but flake syntax.
 #
-# Deliberately pkgs-FREE beyond `pkgs.emptyFile` for the derivation shell. Every question this file
-# can answer is a question about NAMES and LISTS -- which group a key belongs to, which side of the
-# pacman/AUR split a name lands on, whether an engine's catalogued client speaks that engine's
-# protocol -- and none of them needs a package set.
+# ── WHAT THIS FILE CAN AND CANNOT PROVE WHILE THE CLIENT CATALOGUE IS EMPTY ────────────────────
 #
-# What can NOT be proven here, and is not pretended: whether a name is in a given repository today,
-# and whether a nixpkgs attribute still resolves. Those are facts about the world that change
-# without this repository changing, and they are verified out of band against live sources -- see
-# ../experiments/verify-package-names.sh.
+# The catalogue ships with no entries, deliberately (see ../lib/clients.nix's own header: which
+# package belongs to which repository is assigned, not decided here). That has an honest
+# consequence which is stated rather than hidden: several invariants below hold over an EMPTY SET
+# and therefore prove nothing today. They are written anyway, because they are the contract the
+# first entry has to meet, and because a `lib.all` written now is correct the moment there is
+# something to quantify over.
+#
+# What IS proven today, and is not vacuous:
+#
+#   - the whole resolution path exists and terminates: an empty selection resolves to nothing on
+#     every plane the backends read, rather than to an error or to a default nobody asked for;
+#   - both groups are declared, so the surface a future assignment lands on is real;
+#   - NOTHING IS SELECTABLE. A selection into either group is refused at eval, which is the
+#     mechanical form of "this repository claims no package yet";
+#   - the cluster catalogue does not reference the client catalogue at all, in either direction of
+#     naming -- the one property that would otherwise break the cluster side every time a package
+#     moved between repositories.
+#
+# And there is a TRIPWIRE: the emptiness itself is asserted. The day a package is assigned here,
+# this check fails and whoever adds it has to come back and un-vacuum the invariants below. That is
+# deliberate — a check that silently starts covering a real catalogue with assertions written for
+# an empty one is worse than no check.
+#
+# Deliberately pkgs-FREE beyond `pkgs.emptyFile` for the derivation shell. Every question here is a
+# question about NAMES and LISTS. Whether a name is in a repository today, and whether a nixpkgs
+# attribute still forces, are facts about the world that change without this repository changing --
+# see ../experiments/verify-package-names.sh.
 { pkgs, lib ? pkgs.lib }:
 let
   clients = import ../lib/clients.nix { };
@@ -23,20 +43,23 @@ let
     modules = [ ../modules/clients.nix { nixdb.clients = selection; } ];
   }).config.nixdb.clients;
 
-  allWire = lib.attrNames clients.wire;
-  allOperator = lib.attrNames clients.operator;
-  allSelectable = lib.length allWire + lib.length allOperator;
-
-  everything = evalWith { wire = allWire; operator = allOperator; };
   empty = evalWith { };
 
-  entries = lib.concatMap (g: lib.attrValues clients.${g}) (lib.attrNames clients);
+  groups = lib.attrNames clients;
+  entries = lib.concatMap (g: lib.attrValues clients.${g}) groups;
 
-  has = list: item: lib.elem item list;
-  sorted = lib.sort (a: b: a < b);
+  # `evalModules` is lazy: `tryEval` alone forces only WHNF (the attrset exists), never the
+  # type-checked value inside. `deepSeq` forces through, which is what actually runs the
+  # listOf-enum merge that rejects a name.
+  refuses = selection: group:
+    (builtins.tryEval (builtins.deepSeq (evalWith selection).${group} true)).success == false;
+
+  engineEntries = lib.attrValues engines.engines;
+  operatorEntries = lib.attrValues engines.operators;
+  clusterEntries = engineEntries ++ operatorEntries ++ lib.attrValues engines.tooling;
 
   results = {
-    # ── The floor: nothing selected must produce nothing at all ────────────────────────────────
+    # ── The floor, and it is not vacuous: the whole path resolves ──────────────────────────────
     "an empty selection resolves to nothing selected" =
       empty.selected == [ ];
 
@@ -44,108 +67,73 @@ let
       empty.archPackages == [ ] && empty.aurPackages == [ ]
       && empty.nixosPackages == [ ] && empty.binaries == { };
 
-    # ── THE LOAD-BEARING INVARIANT ────────────────────────────────────────────────────────────
-    # One AUR name reaching a pacman list aborts the entire pacman transaction with "target not
-    # found" and takes every unrelated package in the same converge down with it.
-    "archPackages and aurPackages never intersect -- the whole-transaction abort this split exists to prevent" =
-      lib.intersectLists everything.archPackages everything.aurPackages == [ ];
+    "every plane a backend reads is actually published, so an assignment needs no new option" =
+      lib.all (o: empty ? ${o})
+        [ "selected" "archPackages" "aurPackages" "nixosPackages" "binaries" ];
 
-    "every selection lands on exactly one of the two Arch lists -- none silently dropped, none counted twice" =
-      lib.length (everything.archPackages ++ everything.aurPackages) == allSelectable;
-
-    "the two AUR entries are on the AUR side and the two repository entries are on the pacman side" =
-      sorted everything.aurPackages == [ "kubectl-cnpg" "mongosh-bin" ]
-      && sorted everything.archPackages == [ "mariadb-clients" "postgresql-libs" ];
-
-    # ── Group wiring ──────────────────────────────────────────────────────────────────────────
+    # ── The surface exists, and claims nothing ────────────────────────────────────────────────
     "every catalogue group has a matching selection option on the module" =
-      lib.all (g: empty ? ${g}) (lib.attrNames clients);
+      lib.all (g: empty ? ${g}) groups;
 
-    "every group contributes: selecting the whole catalogue resolves every entry" =
-      lib.length everything.selected == allSelectable;
+    "both kinds of client have a group, so neither has to be invented later" =
+      lib.sort (a: b: a < b) groups == [ "operator" "wire" ];
 
-    "each group's option is typed to its OWN keys -- an operator plugin is refused as a wire client" =
-      # `evalModules` is lazy: `tryEval` alone forces only WHNF. `deepSeq` forces through, which is
-      # what actually runs the listOf-enum merge that rejects the name.
-      (builtins.tryEval (builtins.deepSeq (evalWith { wire = [ "kubectl-cnpg" ]; }).wire true)).success == false;
+    # THE CLAIM, ASSERTED MECHANICALLY. Not "the list happens to be empty" but "nothing can be
+    # selected", which is what an empty enum gives and what makes the emptiness enforceable.
+    "nothing is selectable in the wire group -- the surface is declared and claims no package" =
+      refuses { wire = [ "anything" ]; } "wire";
 
-    "and the other way round -- a wire client is refused as an operator selection" =
-      (builtins.tryEval (builtins.deepSeq (evalWith { operator = [ "psql" ]; }).operator true)).success == false;
+    "nothing is selectable in the operator group either" =
+      refuses { operator = [ "anything" ]; } "operator";
 
-    # ── Package name vs command name ──────────────────────────────────────────────────────────
-    # Every entry in this catalogue disagrees with itself on at least one platform. A consumer
-    # aliasing, wrapping or launching by the PACKAGE name gets a command that does not exist.
-    "binaries maps every selection to its real command, not its package name" =
-      everything.binaries == {
-        psql = "psql";
-        mariadb = "mariadb";
-        mongosh = "mongosh";
-        kubectl-cnpg = "kubectl-cnpg";
-      };
+    # ── THE TRIPWIRE ──────────────────────────────────────────────────────────────────────────
+    # Assignment is not this repository's decision, so an entry appearing here is a real event and
+    # must not slip in under assertions that were written for an empty shelf.
+    "the client catalogue is still empty, so the invariants below are known-vacuous -- when the first package is assigned, UPDATE THIS FILE rather than letting it pass by covering nothing" =
+      entries == [ ];
 
-    "the Postgres client's pacman name is a LIBRARY package and its command is not -- the entry's whole point" =
-      has everything.archPackages "postgresql-libs"
-      && !(has everything.archPackages "postgresql")
-      && everything.binaries.psql == "psql";
+    # ── The contract the first entry has to meet (vacuous today, by construction correct) ──────
+    # THE LOAD-BEARING INVARIANT once anything is catalogued: one AUR name reaching a pacman list
+    # aborts the entire pacman transaction with "target not found" and takes every unrelated
+    # package in the same converge down with it.
+    "archPackages and aurPackages can never intersect" =
+      let everything = evalWith (lib.genAttrs groups (g: lib.attrNames clients.${g})); in
+      lib.intersectLists everything.archPackages everything.aurPackages == [ ]
+      && lib.length (everything.archPackages ++ everything.aurPackages) == lib.length entries;
 
-    "the Mongo shell's AUR package carries a suffix its command does not" =
-      has everything.aurPackages "mongosh-bin"
-      && everything.binaries.mongosh == "mongosh";
-
-    "binaries covers exactly the selection, no more -- an unselected entry contributes no command" =
-      (evalWith { wire = [ "psql" ]; }).binaries == { psql = "psql"; };
-
-    "the nixpkgs plane keeps the nested attribute path intact -- flattening it would name a THROWING attribute" =
-      has everything.nixosPackages "mariadb.client"
-      && !(has everything.nixosPackages "mariadb-client")
-      && !(has everything.nixosPackages "mariadb");
-
-    # ── Catalogue integrity ───────────────────────────────────────────────────────────────────
-    "every catalogue entry names a package on BOTH platforms and the command it installs" =
+    "every entry names a package on BOTH platforms and the command it installs" =
       lib.all
-        (t: lib.isString t.arch && lib.isString t.nixpkgs && lib.isString t.binary && t.arch != "" && t.nixpkgs != "")
+        (t: lib.isString (t.arch or null) && lib.isString (t.nixpkgs or null)
+          && lib.isString (t.binary or null) && t.arch != "" && t.nixpkgs != "")
         entries;
 
     "no two entries resolve to the same pacman name or the same nixpkgs attribute" =
       lib.length (lib.unique (map (t: t.arch) entries)) == lib.length entries
       && lib.length (lib.unique (map (t: t.nixpkgs) entries)) == lib.length entries;
 
-    # ── THE CROSS-REFERENCE BETWEEN THE TWO CATALOGUES ────────────────────────────────────────
-    # The cluster catalogue names a client for every engine and every operator. That reference is
-    # the one thing in either file that can rot silently -- a renamed client key, or a client
-    # quietly repointed at another protocol, changes nothing that any other check would notice.
-    "every engine names a client that exists, and it speaks that engine's protocol" =
-      lib.all
-        (e: e.client != null -> (clients.wire ? ${e.client} && clients.wire.${e.client}.speaks == e.wire))
-        (lib.attrValues engines.engines);
+    "a wire client speaks a protocol some engine in the cluster catalogue actually runs" =
+      lib.all (c: lib.any (e: e.wire == c.speaks) engineEntries) (lib.attrValues clients.wire);
 
-    "every operator names a control-plane client that exists, and it drives THAT operator" =
-      lib.all
-        (name:
-          let o = engines.operators.${name}; in
-          o.client != null -> (clients.operator ? ${o.client} && clients.operator.${o.client}.operates == name))
-        (lib.attrNames engines.operators);
-
-    "no orphan wire client: every protocol this catalogue ships a shell for is spoken by an engine the tier can run" =
-      lib.all
-        (c: lib.any (e: e.wire == c.speaks) (lib.attrValues engines.engines))
-        (lib.attrValues clients.wire);
-
-    "no orphan operator client: every plugin drives an operator the tier can run" =
+    "an operator client drives an operator the cluster catalogue actually knows" =
       lib.all (c: engines.operators ? ${c.operates}) (lib.attrValues clients.operator);
 
-    # The multi-model engine speaks a protocol that is not its own product, so it shares a client
-    # with the engine that invented it. Pinned here because it looks like a copy-paste error and is
-    # not -- see that entry's own note.
-    "two different engines share one wire client, on purpose" =
-      engines.engines.postgres.client == "psql"
-      && engines.engines.arcadedb.client == "psql"
-      && engines.engines.arcadedb.wire == "postgres";
+    # ── THE DIRECTION OF THE REFERENCE, and this one is NOT vacuous ───────────────────────────
+    # The cluster catalogue names protocols and operator keys; it must never name a PACKAGE. If it
+    # did, every reassignment of a package to another repository would break the engines here --
+    # and packages get reassigned by somebody who is not reading this file.
+    "no cluster catalogue entry names a client package, in any group" =
+      lib.all (e: !(e ? client) && !(e ? clientPackage) && !(e ? arch)) clusterEntries;
 
-    # ── The asymmetry the NixOS backend warns about ───────────────────────────────────────────
-    "exactly one entry declares that its nixpkgs attribute also installs the engine's server" =
-      lib.length (lib.filter (t: t.installsServerOnNixos or false) entries) == 1
-      && clients.wire.psql.installsServerOnNixos;
+    "every engine still records the PROTOCOL a client would speak to it, which is the reference that survives a package moving" =
+      lib.all (e: lib.isString (e.wire or null) && e.wire != "") engineEntries;
+
+    "and every operator still records what it manages, so an operator client has something to point back at" =
+      lib.all (o: lib.isList (o.manages or null) && o.manages != [ ]) operatorEntries;
+
+    # The multi-model engine speaks a protocol that is not its own product. Pinned because it looks
+    # like a copy-paste error and is not -- see that entry's own note.
+    "two different engines record the same wire protocol, on purpose" =
+      engines.engines.arcadedb.wire == engines.engines.postgres.wire;
   };
 
   failed = lib.attrNames (lib.filterAttrs (_: passed: !passed) results);

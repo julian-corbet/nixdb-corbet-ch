@@ -5,9 +5,13 @@ named `postgresql-libs`. The package named `postgresql` is the **server** and co
 nixpkgs makes no such split: `pkgs.postgresql` is one derivation carrying the client and the server
 together, and the obvious client-only alternative, `pkgs.libpq`, ships no executables at all.
 
-Decided the catalogue entry to be `arch = "postgresql-libs"` / `nixpkgs = "postgresql"`, and
-introduced the `installsServerOnNixos` field plus the warning the NixOS backend raises from it,
-because the two platforms genuinely do not install the same thing.
+**This package is not catalogued here.** Which repository owns a Postgres client is an assignment
+its operator makes, and it has not been made — see [`../lib/clients.nix`](../lib/clients.nix). What
+the finding decided is what the *surface* has to be able to express: the `installsServerOnNixos`
+field exists and the NixOS backend warns from it, because the two platforms genuinely do not
+install the same thing and no wording in a comment can fix that. If and when the package is
+assigned here, the pair is `arch = "postgresql-libs"` / `nixpkgs = "postgresql"` and the trap below
+is already mapped.
 
 ## Why it matters
 
@@ -46,13 +50,15 @@ projects passes — this is one project, split two ways by one packager and not 
 
 ## What it changed
 
-1. The catalogue entry names `postgresql-libs`. A `pacman -Si` hit on `postgresql` would have looked
-   like confirmation of the wrong name.
-2. `installsServerOnNixos = true` exists as a field rather than a sentence in a comment, and
+1. `installsServerOnNixos` exists as a **field** rather than a sentence in a comment, and
    `modules/nixos.nix` warns from it at evaluation time. The asymmetry cannot be removed — there is
    no client-only attribute to switch to — so the honest answer is to say so where somebody will
-   read it.
-3. It is the reason the catalogue's verification cross-checks the **command surface** at all, and
-   not only the package name and the homepage. Two names can agree on the project and the version
-   and still install different commands; here they agree on everything and one of them installs a
+   read it. That is the one part of this finding that is already built.
+2. It is the reason the verification contract cross-checks the **command surface** at all, and not
+   only the package name and the homepage. Two names can agree on the project and the version and
+   still install different commands; here they agree on everything and one of them installs a
    database server.
+3. It records, for whoever assigns the package, that the obvious name is wrong in the expensive
+   direction: `pacman -S postgresql` succeeds, reports a package installed, and leaves the wanted
+   command missing while adding a database server to a workstation. A `pacman -Si postgresql` hit
+   would have looked like confirmation.

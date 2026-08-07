@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Reproduces the verification every name in lib/clients.nix was checked against before being
-# committed. Run it by hand after touching that catalogue -- repository membership and attribute
-# liveness are facts about the world, they change without this repository changing, and no
-# eval-time check can see either (which is exactly the line checks/clients-eval.nix's own header
-# draws around itself).
+# THE VERIFICATION CONTRACT any name in lib/clients.nix must meet. That catalogue is EMPTY today
+# (which repository owns a package is assigned, not decided there), so this script currently checks
+# nothing -- and it is the reason the first assignment is a one-line addition rather than a research
+# project: point it at the new entry and it answers every question that matters before the name
+# reaches a host.
+#
+# Run it by hand after touching the catalogue. Repository membership and attribute liveness are
+# facts about the world: they change without this repository changing, and no eval-time check can
+# see either (which is exactly the line checks/clients-eval.nix's own header draws around itself).
 #
 # FOUR SOURCES, AND NONE OF THEM IS REDUNDANT:
 #
@@ -72,8 +76,8 @@ done
 
 echo
 echo "== The AUR (aur.archlinux.org RPC v5) -- ${#aur_names[@]} name(s) =="
-echo "   These carry aur = true. Both of this catalogue's AUR entries are AUR on EVERY Arch-family"
-echo "   host -- no derivative repository carries either -- so there is no repository lift to check."
+echo "   These carry aur = true, the safe floor. If a name is ALSO carried by some Arch derivative's"
+echo "   own repository, that lift belongs in an archRepoOn field the catalogue does not have yet."
 for pkg in "${aur_names[@]}"; do
   json="$(curl -sf "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" || echo '{"resultcount":0}')"
   if [[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["resultcount"])' <<<"$json")" -gt 0 ]]; then

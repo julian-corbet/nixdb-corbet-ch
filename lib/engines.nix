@@ -101,14 +101,18 @@
 # Group-specific:
 #
 #   `manages`      (operators) engine keys whose instances this operator reconciles.
-#   `client`       (operators, engines) which entry of ../lib/clients.nix talks to this thing. The
-#                  cross-reference is checked: a key naming a client that does not exist, or a
-#                  client that speaks a different protocol, fails `nix flake check`.
 #   `chart`        (operators) upstream Helm chart coordinates -- `repo` and `name`, deliberately
 #                  WITHOUT a version. See ../modules/cluster.nix for why this repository publishes
 #                  the coordinates and renders no chart.
-#   `wire`         (engines) which wire protocol clients speak to it. Not the same as the product:
-#                  the multi-model engine below speaks Postgres.
+#   `wire`         (engines) which wire protocol a client would speak to it. Not the same as the
+#                  product: the multi-model engine below speaks Postgres.
+#
+#                  A PROTOCOL NAME, NEVER A PACKAGE NAME, and the direction of that reference is
+#                  deliberate. This file names no entry of ../lib/clients.nix and must not start
+#                  to: a client is a package, packages get assigned to repositories by their
+#                  operator, and an engine entry that pointed at one would break here every time a
+#                  package moved elsewhere. The reference runs the other way -- a client says which
+#                  protocol it speaks -- so this side never has to change.
 #   `managed`      (engines) true when instances are custom resources reconciled by an operator
 #                  rather than containers. Decides how ../modules/cluster.nix renders an instance,
 #                  and it is a hard fork in behaviour rather than a hint.
@@ -123,7 +127,6 @@
     cnpg = {
       image = null; # delivered by the chart below, not by a single image this repository names
       manages = [ "postgres" ];
-      client = "kubectl-cnpg";
       ports = { };
       primaryPort = null;
       state = { };
@@ -165,7 +168,6 @@
       managed = true;
       operator = "cnpg";
       wire = "postgres";
-      client = "psql";
       ports.postgres = 5432;
       primaryPort = "postgres";
       state = { };
@@ -201,7 +203,6 @@
       managed = false;
       operator = null;
       wire = "mysql";
-      client = "mariadb";
       ports.mysql = 3306;
       primaryPort = "mysql";
       state.data = "/var/lib/mysql";
@@ -245,7 +246,6 @@
       managed = false;
       operator = null;
       wire = "mongodb";
-      client = "mongosh";
       ports.mongo = 27017;
       primaryPort = "mongo";
       state.data = "/data/db";
@@ -299,7 +299,6 @@
       managed = false;
       operator = null;
       wire = "postgres";
-      client = "psql";
       ports = {
         http = 2480;
         postgres = 5432;
@@ -327,10 +326,10 @@
 
         `wire = "postgres"` IS NOT A TYPO AND NOT THE WHOLE STORY. Its native interfaces are an
         HTTP API on 2480 (which also serves its Studio UI) and a binary protocol on 2424; the
-        Postgres wire protocol on 5432 is a PLUGIN, which has to be switched on. That is why the
-        catalogued client is the Postgres one: it is the interface a person reaches for a shell
-        with. It is also the reason `primaryPort` is the HTTP port rather than the wire port --
-        HTTP is what is always there.
+        Postgres wire protocol on 5432 is a PLUGIN, which has to be switched on. It is recorded as
+        the `wire` protocol anyway, because it is the interface a person reaches for a shell with --
+        this engine and the Postgres ladder are talked to by the same kind of client. `primaryPort`
+        is nevertheless the HTTP port rather than the wire port: HTTP is what is always there.
 
         And it is the third object in a tier that listens on 5432, alongside both rungs of the
         Postgres ladder. Three Services, one port number, no conflict: see this file's header.

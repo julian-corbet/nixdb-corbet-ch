@@ -20,9 +20,18 @@ which directories it writes and what is lost when one is not mounted, how long a
 before a probe means anything, which variable its root credential arrives in, which client speaks
 to it.
 
-**[`lib/clients.nix`](lib/clients.nix)** — what a person installs on a host: `wire` clients (a shell
-for one engine's protocol) and `operator` clients (a plugin that drives an operator's control
-plane, never a database). Ordinary packages with verified `arch`/`nixpkgs` names.
+**[`lib/clients.nix`](lib/clients.nix)** — what a person installs on a **host**: `wire` clients (a
+shell for one engine's protocol) and `operator` clients (a plugin that drives an operator's control
+plane, never a database). Ordinary packages with `arch`/`nixpkgs` names, resolved by a policy module
+and installed by two real backends.
+
+**That catalogue is empty today, and the emptiness is a state rather than an oversight.** This
+repository expects to own database tooling as well as engines — that is why the plane, the policy
+module, both backends and the verification contract exist ahead of anything landing on them. What it
+does not do is decide *which* packages: assigning a package to a repository belongs to whoever owns
+the package set, and a catalogue that guessed would quietly take a package out of the repository
+that has it today, where it is already declared, verified and installed on real hosts. Adding the
+first one is a single entry in `lib/clients.nix` and nothing else.
 
 ```nix
 # Cluster plane — composed into a nixidy environment ALONGSIDE nixk3s's app grammar.
@@ -40,9 +49,10 @@ nixdb.instances = {
 };
 nixdb.tools.browser = { tool = "whodb"; version = "…"; exposure = "nb"; … };
 
-# Host plane — the clients.
-nixdb.clients.wire = [ "psql" "mariadb" "mongosh" ];
-nixdb.clients.operator = [ "kubectl-cnpg" ];
+# Host plane — the clients. Both groups are declared and both are empty, so any selection here is
+# refused at eval today. That is the surface an assignment lands on, not a gap.
+nixdb.clients.wire = [ ];
+nixdb.clients.operator = [ ];
 ```
 
 ## It consumes the app grammar; it does not reimplement Kubernetes
@@ -141,34 +151,41 @@ is not the direction it points — both read a schema — but what it is for: a 
 is *operated* (open a live database, run a statement, look at what an application actually wrote),
 so it is useless without engines to point at and is deployed alongside them, by whoever runs them.
 
-**Not the universal terminal shelf's.** [nixsh](https://github.com/julian-corbet/nixsh-corbet-ch) is
-universal *by construction* — every host reaches for a terminal tool regardless of what it runs,
-which is why the SQLite shell and the engine-agnostic multi-database TUIs live there and are
-deliberately absent here. The client rule is the mirror image: *does the tool speak one engine's
-protocol, so that a host with none of that engine has no use for it?* One package, one catalogue —
-both feed the same package list on a NixOS host, so a second entry would be a collision rather than
-a redundancy.
+**On the host side, nothing is claimed at all.** The SQLite shell and the engine-agnostic terminal
+database browsers are catalogued today in [nixsh](https://github.com/julian-corbet/nixsh-corbet-ch),
+the universal terminal-tool shelf; local database *file* inspectors are catalogued today in the
+development-tooling repository. None of them appears here, because one package belongs to one
+catalogue — on a NixOS host they all feed the same package list, so a second entry is a collision
+rather than a redundancy. Whether any of them should one day **move** here is a decision for
+whoever assigns packages to repositories, and this README records where things are rather than
+arguing for where they should be.
 
 Also **not here**: capacity of any kind. Replica counts, heap sizes, resource requests and limits,
 storage sizes, node selectors. Those are decisions about one site's hardware, and this repository
 supplies what software needs in order to be *correct*, never what it needs in order to be the right
 *size*. `env` is where a consumer merges its own tuning in.
 
-## Verified, not guessed
+## The verification contract, and what it already found
 
-Every client name was checked against four independent sources, because no two of them answer the
-same question and three of the four entries were wrong under at least one naive guess:
-archlinux.org's package search API (upstream Arch — the only authority for `aur = false`), the AUR
-RPC (the authority for `aur = true`), the nixpkgs attribute **forced** rather than looked up, and
-`pacman -Si` for information only. Plus two cross-checks a name existing on both platforms cannot
-pass alone: `meta.homepage` against pacman's `URL`, and the actual contents of `bin/`.
+No name enters `lib/clients.nix` without passing four independent sources, because no two of them
+answer the same question: archlinux.org's package search API (upstream Arch — the only authority for
+`aur = false`), the AUR RPC (the authority for `aur = true`), the nixpkgs attribute **forced** rather
+than looked up, and `pacman -Si` for information only. Plus two cross-checks a name existing on both
+platforms cannot pass alone: `meta.homepage` against pacman's `URL`, and the actual contents of
+`bin/`. [`experiments/verify-package-names.sh`](experiments/verify-package-names.sh) runs all of it,
+reading names out of the catalogue rather than a second hand-kept list.
 
-| Selection | pacman | nixpkgs | command |
+Four likely candidates were put through it before it was settled that assignment is not this
+repository's call. **None of them is catalogued here** — the results are kept because they cost real
+time and make somebody else's decision cheaper. Three of the four were wrong under at least one
+naive guess:
+
+| Candidate | pacman | nixpkgs | command |
 |---|---|---|---|
-| `psql` | `postgresql-libs` (`extra`) | `postgresql` | `psql` |
-| `mariadb` | `mariadb-clients` (`extra`) | `mariadb.client` | `mariadb` (and `mysql`) |
-| `mongosh` | `mongosh-bin` (**AUR**) | `mongosh` | `mongosh` |
-| `kubectl-cnpg` | `kubectl-cnpg` (**AUR**) | `kubectl-cnpg` | `kubectl-cnpg` |
+| Postgres shell | `postgresql-libs` (`extra`) | `postgresql` | `psql` |
+| MySQL-protocol shell | `mariadb-clients` (`extra`) | `mariadb.client` | `mariadb` (and `mysql`) |
+| Mongo shell | `mongosh-bin` (**AUR**) | `mongosh` | `mongosh` |
+| Postgres operator plugin | `kubectl-cnpg` (**AUR**) | `kubectl-cnpg` | `kubectl-cnpg` |
 
 Two findings were expensive enough to write up:
 
@@ -185,8 +202,9 @@ Two findings were expensive enough to write up:
 
 `pacman -S` resolves a transaction **atomically**, so one AUR name in a pacman list fails the whole
 thing with `target not found` and takes every unrelated package in the same converge down with it.
-That `archPackages` and `aurPackages` never intersect is the load-bearing invariant `checks/` exists
-to hold.
+That `archPackages` and `aurPackages` never intersect is the load-bearing invariant of the client
+plane, and the split exists from the start for that reason — two of the four candidates above are
+AUR-only, so the first assignment could well be one of them.
 
 ## Public mechanism, private layout
 
@@ -204,28 +222,31 @@ What is public is the mechanism: the catalogue, the knowledge in it, the render,
 |---|---|
 | `flake.nix` | `nixidyModules` (cluster), `nixosModules`/`systemManagerModules` (clients), `lib.*`, `checks`. |
 | `lib/engines.nix` | The cluster catalogue: operators, engines, tooling — and the knowledge that makes each run. |
-| `lib/clients.nix` | The client catalogue: wire clients and operator plugins, with verified `arch`/`nixpkgs` pairs. |
+| `lib/clients.nix` | The client catalogue: two groups declared, both empty. The verification contract an entry must meet, and why nothing is claimed. |
 | `modules/cluster.nix` | The cluster surface: translates declarations into `nixk3s.apps`, and renders the two things that grammar cannot express one level below it. |
 | `modules/clients.nix` | Client policy and the published `archPackages`/`aurPackages`/`nixosPackages`/`binaries`. Also *is* the Arch backend — there is nothing platform-specific left for a second file to hold. |
 | `modules/nixos.nix` | The NixOS backend: force-evaluates every attribute and installs it. |
 | `checks/` | Three checks that really evaluate — see below. |
 | `examples/all/values.nix` | Placeholder values that make the render check real. Nothing in it is a real fleet fact. |
-| `experiments/verify-package-names.sh` | Hand-run verification of every client name against upstream Arch, the AUR, and a forced nixpkgs attribute. |
+| `experiments/verify-package-names.sh` | The verification contract, runnable: every client name against upstream Arch, the AUR, a forced nixpkgs attribute, and `bin/`. |
 | `studies/` | Written-up findings that changed a decision here. |
 
 ## Checks
 
 `nix flake check` runs three, and none of them is syntax-only.
 
-**`clients-eval`** evaluates `modules/clients.nix` through `lib.evalModules` and asserts what it
-resolves: an empty selection produces empty lists on *every* plane; every catalogue group has a
-matching option and contributes; `archPackages` and `aurPackages` never intersect and every
-selection lands on exactly one of them; each group is typed to its own keys; `binaries` maps to real
-commands rather than package names; the nested nixpkgs path stays intact where flattening it would
-name a throwing attribute. It also asserts the **cross-reference between the two catalogues** —
-every engine names a client that exists and that speaks that engine's protocol, every operator names
-a plugin that drives *that* operator, and neither catalogue carries an orphan. That reference is the
-one thing in either file that can rot silently.
+**`clients-eval`** evaluates `modules/clients.nix` through `lib.evalModules`. Because the client
+catalogue is empty, this check is explicit about which of its assertions are real today and which
+hold over an empty set: real are that the whole resolution path terminates (an empty selection
+produces empty lists on *every* plane a backend reads), that both groups are declared, that
+**nothing is selectable in either** — the mechanical form of "this repository claims no package" —
+and that the cluster catalogue names no client package anywhere, in any group. That last one is the
+property that would otherwise break the engines here every time a package moved between
+repositories, which is why engines record a *protocol* and clients point back at it, never the other
+way round. The rest — the pacman/AUR split, name uniqueness, both cross-references — are written as
+quantifiers so they are correct the moment there is anything to quantify over, and a **tripwire**
+asserts the emptiness itself, so the first assignment cannot slip in under assertions written for an
+empty shelf.
 
 **`cluster-eval`** renders the cluster module through the real grammar and the real renderer, in
 both directions: an empty tier defines no app at all, a declared tier's whole contribution is
@@ -253,10 +274,15 @@ Service carries a pinned address, an external IP or a node port.
 
 ## Status
 
-**Pre-alpha.** The catalogue's knowledge is extracted from a production tier that runs all of it —
-an operator, a two-rung Postgres ladder, three self-managed engines and a browser — but this
-repository has not yet replaced that tier's own declarations. The client half is verified against
-live sources rather than dogfooded on every host.
+**Pre-alpha.** The cluster catalogue's knowledge is extracted from a production tier that runs all
+of it — an operator, a two-rung Postgres ladder, three self-managed engines and a browser — but this
+repository has not yet replaced that tier's own declarations.
+
+The **client plane is built and empty**: the catalogue, the policy module, both backends, the checks
+and the verification contract all exist and all resolve, and no package is catalogued. That is not a
+half-finished state — this repository expects to own database tooling as well as engines, and the
+work of being ready for it is done, so that assigning a package is one entry in one file. Which
+packages, and when, is not decided here.
 
 ## Related projects
 
@@ -265,8 +291,8 @@ Part of the same independently-usable module family:
 band model its slots answer to),
 [nixapps](https://github.com/julian-corbet/nixapps-corbet-ch) (the ordinary applications that sit at
 the other end of the dependency graph and consume these engines), and
-[nixsh](https://github.com/julian-corbet/nixsh-corbet-ch) (the universal terminal-tool shelf this
-repository's client catalogue is deliberately *not* part of).
+[nixsh](https://github.com/julian-corbet/nixsh-corbet-ch) (the universal terminal-tool shelf, which
+catalogues the engine-agnostic database tools this repository does not duplicate).
 
 ## License
 

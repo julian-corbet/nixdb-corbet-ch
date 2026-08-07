@@ -4,9 +4,12 @@
 Both are present as attributes, and both raise an error the moment their value is forced. The live
 attribute is the nested `mariadb.client`.
 
-Decided the catalogue entry to be `nixpkgs = "mariadb.client"`, and is the reason
-`modules/nixos.nix` force-evaluates every attribute through `tryEval` instead of checking that it
-exists.
+**This package is not catalogued here.** Which repository owns a MySQL-protocol client is an
+assignment its operator makes, and it has not been made — see
+[`../lib/clients.nix`](../lib/clients.nix). What the finding decided is how the *backend* resolves
+attributes at all: `modules/nixos.nix` force-evaluates every one through `tryEval` instead of
+checking that it exists. If and when the package is assigned here, the attribute is
+`mariadb.client` and neither obvious spelling works.
 
 ## Why it matters
 
@@ -60,12 +63,13 @@ that matter. `meta.homepage` and pacman's `URL` are both `https://mariadb.org/`.
 
 ## What it changed
 
-1. The catalogue keeps the **dotted path** `mariadb.client` rather than flattening it to something
-   that reads more like the other entries, and `checks/clients-eval.nix` asserts that the flattened
-   forms never appear on the resolved nixpkgs list.
-2. `modules/nixos.nix` resolves every entry with `builtins.tryEval (builtins.seq …)` and downgrades
+1. `modules/nixos.nix` resolves every entry with `builtins.tryEval (builtins.seq …)` and downgrades
    a stale mapping to a warning plus a skip, instead of taking the whole system evaluation down.
    The catalogue is a data table; one stale row in it should not be able to make a machine
    unbuildable.
-3. It is the reason this repository's package verification forces derivations at all. An existence
-   check would have passed on two attributes in one file, in the same sitting, and shipped both.
+2. It is the reason this repository's verification contract forces derivations at all rather than
+   testing that an attribute exists. An existence check would have passed on two attributes in one
+   sitting and shipped both.
+3. It records, for whoever assigns the package, that a **dotted path** is the expected shape in
+   this subject rather than an exception — and that the bare product attribute is the server, which
+   builds and installs cleanly and gives no client shell.

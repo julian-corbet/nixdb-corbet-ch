@@ -2,6 +2,15 @@
 # nixdb's client policy: the selection surface for ../lib/clients.nix, and the package-name lists a
 # host's own reconciler consumes. Installs nothing itself.
 #
+# THE CATALOGUE IT RESOLVES IS EMPTY TODAY, and this module exists anyway rather than being added
+# later with the first package. That is the opposite of building machinery with nothing to decide,
+# and the difference is worth stating: a repository whose subject is databases will own the tooling
+# a person points at one, so the question is not WHETHER this plane exists but which packages land
+# on it -- and that is assigned per package by whoever owns the package set, not decided here. What
+# this module buys today is that the assignment is a one-line addition to a catalogue rather than a
+# new module, a new backend and a new set of checks. ../checks/clients-eval.nix proves the whole
+# path already resolves.
+#
 # THIS MODULE IS ALSO THE ARCH BACKEND, and there is deliberately no second file behind
 # `systemManagerModules.default`. Same conclusion the sibling repos reached once their platform-
 # specific work moved elsewhere: on Arch there is nothing here to install FROM -- the lists below
@@ -17,12 +26,12 @@
 # a module that assigns into a FOREIGN namespace both hard-depends on that namespace existing and
 # takes the concatenation point away from the one file that can see every catalogue at once.
 #
-# NO `distro` OPTION HERE, unlike some siblings, and the absence is deliberate rather than an
-# unfinished corner. That option exists in a catalogue where an AUR-only name is carried by SOME
-# Arch derivative's own repository, so which list an entry lands on depends on the host. Neither
-# AUR entry in this catalogue has that property -- both were checked against a derivative's
-# repositories and found in none -- so a `distro` option here would be machinery with nothing to
-# decide, and a reader would reasonably assume it decided something.
+# NO `distro` OPTION HERE, unlike some siblings. That option exists in a catalogue where an
+# AUR-only name is carried by SOME Arch derivative's own repository, so which of the two lists an
+# entry lands on depends on the host. Nothing catalogued here has that property today -- nothing is
+# catalogued here at all -- and an option that decided nothing would still read as though it did.
+# It is a two-line addition (an `archRepoOn` field and this option) the day an entry needs it, and
+# the sibling repositories already have the exact shape to copy.
 #
 # ONE NAMESPACE. Everything declared here lives under `nixdb`, like every repo in this family; the
 # client surface is nested at `nixdb.clients` so it cannot collide with the cluster surface
@@ -32,10 +41,18 @@ let
   cfg = config.nixdb.clients;
   cat = import ../lib/clients.nix { };
 
+  # An EMPTY table is a legitimate state here, not a transitional one -- see ../lib/clients.nix's
+  # own header for why nothing is catalogued yet. `types.enum [ ]` accepts no value at all, so a
+  # selection into an empty group is refused at eval rather than silently resolving to nothing,
+  # which is exactly the right behaviour: the surface exists and claims nothing.
   mkGroup = what: table: lib.mkOption {
     type = lib.types.listOf (lib.types.enum (lib.attrNames table));
     default = [ ];
-    description = "Which ${what}. Available: ${lib.concatStringsSep ", " (lib.attrNames table)}.";
+    description =
+      "Which ${what}. "
+      + (if table == { }
+      then "NOTHING IS CATALOGUED IN THIS GROUP YET -- the surface is declared and empty on purpose (see lib/clients.nix), so any selection here is refused."
+      else "Available: ${lib.concatStringsSep ", " (lib.attrNames table)}.");
   };
 
   # Each resolved entry carries its own catalogue KEY back out as `name` -- without it, everything
@@ -102,10 +119,9 @@ in
           nixarch.packages.aur = config.nixdb.clients.aurPackages;
 
         Non-empty means the host needs a working AUR helper (and, for an unattended reconciler,
-        whatever non-root user and sudo rule that helper requires). Both of this catalogue's AUR
-        entries are AUR on every Arch-family host, so any selection touching them is non-empty
-        here -- if the host has no helper, prefer leaving the selection out over declaring
-        something that will be reported as installed and will not exist.
+        whatever non-root user and sudo rule that helper requires). If it has neither, prefer
+        leaving the selection out over declaring something that will be reported as installed and
+        will not exist.
       '';
     };
 
