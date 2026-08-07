@@ -4,12 +4,10 @@
 Both are present as attributes, and both raise an error the moment their value is forced. The live
 attribute is the nested `mariadb.client`.
 
-**This package is not catalogued here.** Which repository owns a MySQL-protocol client is an
-assignment its operator makes, and it has not been made — see
-[`../lib/clients.nix`](../lib/clients.nix). What the finding decided is how the *backend* resolves
-attributes at all: `modules/nixos.nix` force-evaluates every one through `tryEval` instead of
-checking that it exists. If and when the package is assigned here, the attribute is
-`mariadb.client` and neither obvious spelling works.
+**The catalogued attribute is `mariadb.client`** — see the `mariadb` entry in
+[`../lib/clients.nix`](../lib/clients.nix); neither obvious spelling works. What the finding
+decided beyond that name is how the *backend* resolves attributes at all: `modules/nixos.nix`
+force-evaluates every one through `tryEval` instead of checking that it exists.
 
 ## Why it matters
 
@@ -70,6 +68,8 @@ that matter. `meta.homepage` and pacman's `URL` are both `https://mariadb.org/`.
 2. It is the reason this repository's verification contract forces derivations at all rather than
    testing that an attribute exists. An existence check would have passed on two attributes in one
    sitting and shipped both.
-3. It records, for whoever assigns the package, that a **dotted path** is the expected shape in
-   this subject rather than an exception — and that the bare product attribute is the server, which
-   builds and installs cleanly and gives no client shell.
+3. It is why `checks/clients-eval.nix` asserts by name that `mariadb.client` is what the NixOS
+   plane publishes and that neither throwing spelling appears there. A **dotted path** is an
+   expected shape in this subject rather than an exception, and the bare product attribute is the
+   server, which builds and installs cleanly and gives no client shell — none of which an
+   existence check can tell apart.

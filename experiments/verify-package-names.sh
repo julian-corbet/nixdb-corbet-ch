@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# THE VERIFICATION CONTRACT any name in lib/clients.nix must meet. That catalogue is EMPTY today
-# (which repository owns a package is assigned, not decided there), so this script currently checks
-# nothing -- and it is the reason the first assignment is a one-line addition rather than a research
-# project: point it at the new entry and it answers every question that matters before the name
-# reaches a host.
+# THE VERIFICATION CONTRACT every name in lib/clients.nix has met, runnable. Point it at the
+# catalogue and it answers every question that matters before a name reaches a host -- which is why
+# adding an entry is a one-line change rather than a research project.
 #
 # Run it by hand after touching the catalogue. Repository membership and attribute liveness are
 # facts about the world: they change without this repository changing, and no eval-time check can
@@ -23,6 +21,11 @@
 #      fails when the value is demanded. This catalogue found two such attributes in one sitting --
 #      see ../studies/mariadb-client-and-mysql-client-both-throw.md.
 #   4. `pacman -Si`, if pacman is present  -- informational: what THIS host resolves.
+#
+# AN ENTRY MAY CARRY `nixpkgs = null`, meaning no derivation exists at all. Those are listed rather
+# than checked, and listing them is the point: a null that quietly became checkable (somebody
+# packaged the tool) is a catalogue improvement waiting to be made, and a null that was never
+# verified in the first place is a guess. Either way the reader sees the name.
 #
 # Plus the two cross-checks that a name existing on both platforms cannot pass on its own: the
 # homepage against pacman's URL (a pair pointing at two different projects), and -- with
@@ -58,7 +61,8 @@ catalogue_field() {
 
 read -r -a official_names <<<"$(catalogue_field '!(t.aur or false)' 'arch')"
 read -r -a aur_names      <<<"$(catalogue_field '(t.aur or false)'  'arch')"
-read -r -a nixpkgs_attrs  <<<"$(catalogue_field 'true'              'nixpkgs')"
+read -r -a nixpkgs_attrs  <<<"$(catalogue_field 't.nixpkgs != null' 'nixpkgs')"
+read -r -a nixpkgs_none   <<<"$(catalogue_field 't.nixpkgs == null' 'arch')"
 
 status=0
 
@@ -106,6 +110,16 @@ for attr in "${nixpkgs_attrs[@]}"; do
     status=1
   fi
 done
+
+if [[ ${#nixpkgs_none[@]} -gt 0 ]]; then
+  echo
+  echo "== Catalogued as having NO nixpkgs derivation (nixpkgs = null) -- ${#nixpkgs_none[@]} entry(ies) =="
+  echo "   Not a failure: modules/nixos.nix warns and skips these. If one of them IS packaged now,"
+  echo "   the catalogue should say so -- check by hand before assuming the null is still true."
+  for pkg in "${nixpkgs_none[@]}"; do
+    echo "     $pkg (pacman name) -- no nixpkgs attribute claimed"
+  done
+fi
 
 if [[ $surface -eq 1 ]]; then
   echo

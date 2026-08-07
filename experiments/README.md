@@ -9,15 +9,15 @@ file below.
   package search API, the only authority for an `aur = false` claim), the **AUR RPC** (the
   authority for `aur = true`), and its **nixpkgs attribute forced** rather than merely looked up.
   `--surface` additionally realizes each attribute and lists `bin/`, because existence, project
-  identity and command surface are three separate questions and at least one candidate in this
-  subject is only answered correctly by the third. Reads the names out of the catalogue rather than
-  a second hand-kept list.
+  identity and command surface are three separate questions and several entries in this subject are
+  only answered correctly by the third. Reads the names out of the catalogue rather than a second
+  hand-kept list.
 
-  That catalogue is **empty today** — which repository owns a package is assigned rather than
-  decided there — so the script currently checks nothing. It is here for the same reason the
-  backends are: the day a package is assigned, verifying it is running one command, not starting a
-  research project. Four likely candidates have already been through it; two turned out to be traps
-  and are written up in [`../studies/`](../studies/README.md).
+  Every one of the ten entries has been through it. Three of the findings were expensive enough to
+  write up in [`../studies/`](../studies/README.md), and two of those are outright traps: a name
+  that installs a database server instead of the shell that was wanted, and two nixpkgs attributes
+  that exist and throw. Entries carrying `nixpkgs = null` — no derivation exists at all — are
+  listed rather than checked, so a null that has quietly become packageable is visible on every run.
 
 ## Why this lives here and not in `checks/`
 
@@ -40,10 +40,11 @@ declares it, because a tier runs several majors of one engine at once and this r
 concept of a current one. There is no name to check against a registry, and checking that a
 repository exists would prove nothing about the tag somebody actually deploys.
 
-What the cluster side does have is a cross-reference into the client catalogue — every engine names
-a client, every operator names a control-plane plugin — and that IS deterministic, so it is
-asserted at eval time in [`../checks/clients-eval.nix`](../checks/clients-eval.nix) rather than
-here.
+What the two catalogues do share is a cross-reference, and it runs one way: an engine records the
+wire *protocol* a client would speak to it, and a client points back at that protocol. Which
+direction it runs is deterministic and matters — a cluster entry naming a package would break every
+time a package moved — so it is asserted at eval time in
+[`../checks/clients-eval.nix`](../checks/clients-eval.nix) rather than here.
 
 If something in here turns out to matter in a different way, distil the actual finding into
 [`../studies/`](../studies/README.md) and let the experiment stay disposable (or delete it).

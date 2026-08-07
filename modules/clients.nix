@@ -2,15 +2,6 @@
 # nixdb's client policy: the selection surface for ../lib/clients.nix, and the package-name lists a
 # host's own reconciler consumes. Installs nothing itself.
 #
-# THE CATALOGUE IT RESOLVES IS EMPTY TODAY, and this module exists anyway rather than being added
-# later with the first package. That is the opposite of building machinery with nothing to decide,
-# and the difference is worth stating: a repository whose subject is databases will own the tooling
-# a person points at one, so the question is not WHETHER this plane exists but which packages land
-# on it -- and that is assigned per package by whoever owns the package set, not decided here. What
-# this module buys today is that the assignment is a one-line addition to a catalogue rather than a
-# new module, a new backend and a new set of checks. ../checks/clients-eval.nix proves the whole
-# path already resolves.
-#
 # THIS MODULE IS ALSO THE ARCH BACKEND, and there is deliberately no second file behind
 # `systemManagerModules.default`. Same conclusion the sibling repos reached once their platform-
 # specific work moved elsewhere: on Arch there is nothing here to install FROM -- the lists below
@@ -28,10 +19,12 @@
 #
 # NO `distro` OPTION HERE, unlike some siblings. That option exists in a catalogue where an
 # AUR-only name is carried by SOME Arch derivative's own repository, so which of the two lists an
-# entry lands on depends on the host. Nothing catalogued here has that property today -- nothing is
-# catalogued here at all -- and an option that decided nothing would still read as though it did.
-# It is a two-line addition (an `archRepoOn` field and this option) the day an entry needs it, and
-# the sibling repositories already have the exact shape to copy.
+# entry lands on depends on the host. Nothing catalogued here has that property: all three AUR
+# entries were checked against a live CachyOS host's own repositories as well as upstream Arch and
+# resolve in neither, so `aur = true` is the whole answer everywhere and an option deciding
+# nothing would still read as though it did. It is a two-line addition (an `archRepoOn` field and
+# this option) the day an entry needs it, and the sibling repositories already have the exact
+# shape to copy.
 #
 # ONE NAMESPACE. Everything declared here lives under `nixdb`, like every repo in this family; the
 # client surface is nested at `nixdb.clients` so it cannot collide with the cluster surface
@@ -41,17 +34,16 @@ let
   cfg = config.nixdb.clients;
   cat = import ../lib/clients.nix { };
 
-  # An EMPTY table is a legitimate state here, not a transitional one -- see ../lib/clients.nix's
-  # own header for why nothing is catalogued yet. `types.enum [ ]` accepts no value at all, so a
-  # selection into an empty group is refused at eval rather than silently resolving to nothing,
-  # which is exactly the right behaviour: the surface exists and claims nothing.
+  # An EMPTY table is a legitimate state, not a transitional one -- the `operator` group is empty
+  # on purpose and says so in the catalogue. `types.enum [ ]` accepts no value at all, so a
+  # selection into an empty group is refused at eval rather than silently resolving to nothing.
   mkGroup = what: table: lib.mkOption {
     type = lib.types.listOf (lib.types.enum (lib.attrNames table));
     default = [ ];
     description =
       "Which ${what}. "
       + (if table == { }
-      then "NOTHING IS CATALOGUED IN THIS GROUP YET -- the surface is declared and empty on purpose (see lib/clients.nix), so any selection here is refused."
+      then "NOTHING IS CATALOGUED IN THIS GROUP -- it is declared and empty on purpose (see lib/clients.nix), so any selection here is refused."
       else "Available: ${lib.concatStringsSep ", " (lib.attrNames table)}.");
   };
 
@@ -67,16 +59,31 @@ let
   # catalogue group has a matching option on this module.
   selected = lib.flatten [
     (map (resolve cat.wire) cfg.wire)
+    (map (resolve cat.universal) cfg.universal)
+    (map (resolve cat.file) cfg.file)
     (map (resolve cat.operator) cfg.operator)
   ];
 
   fromAur = t: t.aur or false;
+
+  # A `null` nixpkgs attribute means NO derivation exists, which is a fact about the package rather
+  # than a hole in the entry -- see ../lib/clients.nix. It is filtered out of the NixOS plane here
+  # and reported by ../modules/nixos.nix, so a NixOS consumer is told rather than left wondering.
+  hasNixpkgs = t: (t.nixpkgs or null) != null;
 in
 {
   options.nixdb.clients = {
     wire = mkGroup
-      "database wire-protocol clients -- a shell for one engine's protocol (see ../lib/clients.nix's own header for the boundary against the universal terminal-tool shelf, which already carries the engine-agnostic ones)"
+      "database wire-protocol clients -- a shell for exactly one engine's protocol"
       cat.wire;
+
+    universal = mkGroup
+      "multi-engine database clients -- they speak several protocols through drivers, which is why they name none and are not `wire`"
+      cat.universal;
+
+    file = mkGroup
+      "database FILE clients -- they open an on-disk database directly, with no server, no port and no connection string"
+      cat.file;
 
     operator = mkGroup
       "operator control-plane clients -- these drive an operator, never a database, which is why they are their own group rather than more of `wire`"
@@ -129,9 +136,23 @@ in
       type = lib.types.listOf lib.types.str;
       readOnly = true;
       description = ''
-        Selections as nixpkgs attribute paths (dotted for a nested attribute). Published for
-        introspection; ../modules/nixos.nix is what actually resolves and installs them, and it
-        force-evaluates each one rather than trusting that the attribute exists -- see that file.
+        Selections as nixpkgs attribute paths (dotted for a nested attribute). Entries whose
+        catalogue `nixpkgs` is `null` -- no derivation exists at all -- are absent from this list
+        rather than present as an empty string, so a consumer reading it gets names it can
+        actually resolve. Published for introspection; ../modules/nixos.nix is what installs them,
+        and it force-evaluates each one rather than trusting that the attribute exists.
+      '';
+    };
+
+    unavailableOnNixos = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      readOnly = true;
+      description = ''
+        Catalogue names selected on this host that have NO nixpkgs derivation at all, so a NixOS
+        host cannot satisfy them from the catalogue. Published rather than merely warned about,
+        because a consumer that wants the tool anyway needs a machine-readable list to point its
+        own packaging at -- and because a silent absence in `nixosPackages` would otherwise be
+        indistinguishable from nothing having been selected.
       '';
     };
 
@@ -142,8 +163,9 @@ in
         catalogue name -> the command actually installed, for every selection. Published because
         the two disagree for most of this catalogue, and because a consumer writing a wrapper, an
         alias or a launcher against the PACKAGE name gets a command that does not exist -- the
-        Arch package for the Postgres shell is named for a library, and the one for the Mongo
-        shell carries a suffix its command does not.
+        Arch package for the Postgres shell is named for a library, the one for the Mongo shell
+        carries a suffix its command does not, and the SQLite entry's package and command differ
+        by a digit.
       '';
     };
   };
@@ -152,7 +174,10 @@ in
     nixdb.clients.selected = selected;
     nixdb.clients.archPackages = lib.unique (map (t: t.arch) (lib.filter (t: !(fromAur t)) selected));
     nixdb.clients.aurPackages = lib.unique (map (t: t.arch) (lib.filter fromAur selected));
-    nixdb.clients.nixosPackages = lib.unique (map (t: t.nixpkgs) selected);
+    nixdb.clients.nixosPackages =
+      lib.unique (map (t: t.nixpkgs) (lib.filter hasNixpkgs selected));
+    nixdb.clients.unavailableOnNixos =
+      lib.unique (map (t: t.name) (lib.filter (t: !(hasNixpkgs t)) selected));
     nixdb.clients.binaries =
       lib.listToAttrs (map (t: lib.nameValuePair t.name t.binary) selected);
   };

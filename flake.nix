@@ -1,5 +1,5 @@
 {
-  description = "nixdb — the database tier, declared: engines and the operator that manages them as cluster workloads, plus the engine-specific clients a person installs to talk to them";
+  description = "nixdb — the database tier, declared: engines and the operator that manages them as cluster workloads, plus every database client a person installs on a host";
 
   # NO INPUTS FOR CONSUMERS, the same reasoning the sibling catalogues state for themselves: this
   # flake is options plus a catalogue, taking `pkgs`/`config`/`lib` from whichever evaluation
@@ -41,7 +41,7 @@
       nixidyModules.nixdb = ./modules/cluster.nix;
       nixidyModules.default = ./modules/cluster.nix;
 
-      # The host plane, for the engine-specific clients. Here the system is nix, so the backend
+      # The host plane, for the database clients. Here the system is nix, so the backend
       # installs; on Arch there is nothing to install FROM, so the policy module IS that backend and
       # publishes package-name lists for the host's own reconciler. No third file exists to
       # re-export the second one -- see modules/clients.nix's own header.

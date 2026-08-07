@@ -7,29 +7,33 @@
 # system with a different set of options; a NixOS host composing this file gets the client surface
 # and nothing else. That is the boundary rather than a gap -- see ./cluster.nix.
 #
-# THE CATALOGUE IT INSTALLS FROM IS EMPTY TODAY, so this backend installs nothing -- see
-# ../modules/clients.nix's own header for why the plane exists ahead of the packages that will land
-# on it. Everything below is the behaviour the first entry meets, written once rather than
-# discovered later.
-#
 # EVERY ATTRIBUTE IS FORCE-EVALUATED, not merely looked up, and the reason is measured rather than
 # theoretical: nixpkgs converts a renamed package into `<oldName> = throw "renamed to ...";`, which
 # keeps the key present and only fails when the value is forced -- which is exactly what building
-# `environment.systemPackages` does. Two of the four candidate names verified for this subject
-# behave that way (see ../studies/mariadb-client-and-mysql-client-both-throw.md), so an existence
-# check here would ship a host configuration that evaluates and then fails to build. `tryEval`
-# turns a stale mapping into a skip plus a warning instead of taking the whole system evaluation
-# down: ../lib/clients.nix is a data table, and one stale row in it should not be able to make a
-# machine unbuildable.
+# `environment.systemPackages` does. Two attributes in this subject behave that way and both are
+# the obvious spelling of one catalogue entry (see
+# ../studies/mariadb-client-and-mysql-client-both-throw.md), so an existence check here would ship
+# a host configuration that evaluates and then fails to build. `tryEval` turns a stale mapping into
+# a skip plus a warning instead of taking the whole system evaluation down: ../lib/clients.nix is a
+# data table, and one stale row in it should not be able to make a machine unbuildable.
+#
+# A `null` ATTRIBUTE IS NOT A STALE ROW, and the two are reported separately on purpose. Null means
+# the catalogue KNOWS there is no nixpkgs derivation -- verified, recorded, and true of one entry
+# today -- so the honest thing on this platform is to say the selection cannot be satisfied here.
+# A stale row means the catalogue believed there was one and there is not, which is a bug in the
+# catalogue. Collapsing them into one message would send somebody to fix a file that is correct.
 { config, lib, pkgs, ... }:
 let
   cfg = config.nixdb.clients;
 
   resolve = t: lib.getAttrFromPath (lib.splitString "." t.nixpkgs) pkgs;
 
+  packaged = lib.filter (t: (t.nixpkgs or null) != null) cfg.selected;
+  unpackaged = lib.filter (t: (t.nixpkgs or null) == null) cfg.selected;
+
   evaluated = map
     (t: { inherit t; try = builtins.tryEval (builtins.seq (resolve t) true); })
-    cfg.selected;
+    packaged;
 
   installable = map (r: r.t) (lib.filter (r: r.try.success) evaluated);
   stale = lib.filter (r: !r.try.success) evaluated;
@@ -44,6 +48,9 @@ in
       map
         (r: "nixdb: nixpkgs attribute `${r.t.nixpkgs}` (catalogue entry `${r.t.name}`, pacman name `${r.t.arch}`) no longer resolves -- lib/clients.nix's mapping is stale, most likely a nixpkgs rename. The client was NOT installed.")
         stale
+      ++ map
+        (t: "nixdb: `${t.name}` has no nixpkgs derivation at all (pacman name `${t.arch}`, AUR), so it cannot be installed on NixOS from this catalogue and was skipped. This is recorded knowledge rather than a stale mapping -- see lib/clients.nix's own entry. The selection is published at `nixdb.clients.unavailableOnNixos` for a consumer that wants to package it itself.")
+        unpackaged
       ++ map
         (t: "nixdb: `${t.name}` installs the engine's SERVER binaries on NixOS as well as its client, because nixpkgs ships them in one derivation where Arch splits them into two packages. Nothing is started -- no service, no user, no data directory -- but the server commands are on PATH here and are not on an Arch host running the same selection. See lib/clients.nix's own entry.")
         (lib.filter (t: t.installsServerOnNixos or false) installable);
