@@ -237,10 +237,12 @@ let
   ## Assertions
   ## ---------------------------------------------------------------------
 
-  # Stated as a total function of the workload, so a message never depends on its own assertion
-  # having failed: an assertion's message is forced whether or not the assertion holds, and a
-  # message that only works in the failing case takes the whole evaluation down instead of
-  # reporting anything.
+  # Stated as a total function of the workload. The module system keeps only the FAILING assertions
+  # and formats those messages, so a message is evaluated at exactly the moment its own assertion
+  # has failed -- and one that throws on a partial declaration takes the whole evaluation down
+  # instead of reporting anything. That same filtering means a value mentioned ONLY in a message is
+  # never forced, and so never type-checked: whatever an assertion wants checked has to be in its
+  # `assertion` expression. See nixwatch's study `an-option-nothing-renders-is-never-checked`.
   showSlot = w: if w.slot == null then "(none)" else toString w.slot;
 
   instanceAssertions = lib.concatMap
