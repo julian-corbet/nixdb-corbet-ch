@@ -19,7 +19,7 @@
 #
 # NO `distro` OPTION HERE, unlike some siblings. That option exists in a catalogue where an
 # AUR-only name is carried by SOME Arch derivative's own repository, so which of the two lists an
-# entry lands on depends on the host. Nothing catalogued here has that property: all three AUR
+# entry lands on depends on the host. Nothing catalogued here has that property: all four AUR
 # entries were checked against a live CachyOS host's own repositories as well as upstream Arch and
 # resolve in neither, so `aur = true` is the whole answer everywhere and an option deciding
 # nothing would still read as though it did. It is a two-line addition (an `archRepoOn` field and

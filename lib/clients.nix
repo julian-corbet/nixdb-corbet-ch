@@ -285,11 +285,14 @@
         know yet and look at what is in it. The overlap is real and neither covers the other's
         job.
 
-        THE VERSIONS DIVERGE, and this is the one entry where that is worth watching rather than
-        shrugging at. Arch ships 0.4.2 and nixpkgs 0.3.20 -- not two distributions lagging by a
-        patch but a minor-version gap in a young project that is still moving its keybindings and
-        its config file around. A person who uses this on both an Arch host and a NixOS host will
-        meet the difference; a script will not, because there is nothing here to script.
+        THE VERSIONS ARE WORTH CONFIRMING rather than shrugging at, and this is the entry where
+        that is true: the project is young and still moving its keybindings and its config file
+        around, so a gap here would be one a person actually MEETS rather than a patch-level
+        detail. They are in step -- nixpkgs at this repo's own pinned revision forces to 0.4.2 and
+        Arch ships 0.4.2, with upstream Arch since tagged 0.4.3, one patch ahead and ordinary
+        release-cadence drift. Only a person straddling an Arch host and a NixOS host would ever
+        notice such a gap; a script would not, because a schema browser has no scriptable surface
+        to notice it with.
       '';
     };
   };
