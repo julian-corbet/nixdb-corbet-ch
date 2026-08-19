@@ -32,7 +32,24 @@
   outputs = { self, nixpkgs, nixidy, nixk3s }:
     let
       lib = nixpkgs.lib;
-      forAllSystems = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+
+      # ONLY THE SYSTEMS THESE CHECKS CAN GENUINELY BE EVALUATED ON, which is the narrower claim and
+      # the honest one. `cluster-render` builds a real nixidy environment, and nixidy's own
+      # `fromYAML` is IMPORT-FROM-DERIVATION: reading a manifest back means BUILDING a derivation
+      # during evaluation. A derivation for `aarch64-linux` cannot be built by an x86_64 runner, so
+      # declaring aarch64 here does not widen coverage -- it makes `nix flake check --all-systems`
+      # fail outright on every ordinary CI machine with "a 'aarch64-linux' ... is required to build
+      # ... but I am a 'x86_64-linux'", which is what it did on this repository's first CI run.
+      #
+      # The alternative -- keeping aarch64 and dropping `--all-systems` -- is the worse trade and
+      # the one this family already refuses: a bare `nix flake check` silently omits the systems it
+      # cannot evaluate and still exits 0, so CI goes green having tested half of what the flake
+      # claims. Narrow the claim instead, and keep the check strict. Same reasoning nixboot's own
+      # ci.yml states for why its `systems` list is deliberately short.
+      #
+      # Nothing else here is x86-specific: the modules are nixidy/NixOS/system-manager modules and
+      # the catalogues are plain data, all of which stay available to a consumer on any system.
+      forAllSystems = lib.genAttrs [ "x86_64-linux" ];
       pkgsFor = system: nixpkgs.legacyPackages.${system};
     in
     {
