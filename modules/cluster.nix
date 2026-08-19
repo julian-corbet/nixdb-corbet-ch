@@ -224,6 +224,24 @@ let
   # name.
   declaredOperatorKeys = lib.unique (lib.mapAttrsToList (_: w: w.operator) operators);
 
+  # DECLARED IS NOT DELIVERED, and the difference is load-bearing for the interlock below.
+  #
+  # An operator declared with `manifests = [ ]` renders nothing here -- that is the supported shape
+  # for a chart deployed by an application of the consumer's own. But it means the interlock could
+  # be satisfied by a declaration that ships no operator at all: the consumer drops the application
+  # that actually delivers the chart, this module still evaluates green, and the managed instances
+  # become custom resources with nothing to reconcile them. Exactly the failure the interlock exists
+  # to prevent, reached through the one door it did not watch.
+  #
+  # `manifests == [ ]` is precisely the case where THIS module defines no `applications.<name>`, so
+  # the attribute existing means something else in the same environment defines it. That makes the
+  # check exact rather than heuristic: no ownership guessing, no definition-site introspection.
+  deliveredElsewhere = name: config.applications ? ${name};
+
+  undeliveredOperators = lib.filter
+    (name: operators.${name}.manifests == [ ] && !(deliveredElsewhere name))
+    (lib.attrNames operators);
+
   operatorsManaging = engineKey:
     lib.filter (x: lib.elem engineKey x.entry.manages)
       (lib.filter (x: x.kind == "operator") allWorkloads);
@@ -358,6 +376,19 @@ let
 
   tierAssertions =
     map
+      (name: {
+        assertion = false;
+        message =
+          "nixdb: operator `${name}` is declared with no `manifests`, and nothing in this environment "
+          + "delivers it either -- there is no `applications.${name}`. An empty `manifests` means "
+          + "\"its chart is deployed by an application of my own\", so this declaration currently "
+          + "promises an operator that does not exist. Every managed instance depending on it would "
+          + "render a custom resource the API server accepts and reports healthy while no database is "
+          + "ever created. Deliver the chart from an application of your own, or put its rendered "
+          + "objects in `manifests` here.";
+      })
+      undeliveredOperators
+    ++ map
       (slot: {
         assertion = false;
         message =

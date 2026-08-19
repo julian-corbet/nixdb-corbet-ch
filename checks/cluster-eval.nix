@@ -86,6 +86,20 @@ let
 
   goodCfg = (mkEnv goodTier).config;
 
+  # The other direction of the delivery interlock, and the one that keeps it from being a wall: the
+  # SAME operator with empty `manifests`, but with the consumer delivering its chart itself as an
+  # `applications.<name>` this module does not define. That is precisely what an empty `manifests`
+  # promises exists, so it must render.
+  emptyManifestsDelivered = lib.recursiveUpdate goodTier {
+    nixdb.operators.op.manifests = lib.mkForce [ ];
+    applications.op = {
+      namespace = "example-dbs";
+      createNamespace = false;
+      project = "example-data";
+      yamls = [ "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: op\n  namespace: example-dbs\n" ];
+    };
+  };
+
   # One tier, two renderers, and the split is a property of the ENGINE rather than of the
   # declaration -- which is exactly what makes it worth pinning.
   sorted = lib.sort (a: b: a < b);
@@ -161,6 +175,14 @@ let
 
     tool-passing-verbatim-objects =
       lib.recursiveUpdate goodTier { nixdb.tools.browser.manifests = [ "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n" ]; };
+
+    # DECLARED IS NOT DELIVERED. An operator with empty `manifests` renders nothing here, which is
+    # the supported shape when its chart comes from an application of the consumer's own -- and it
+    # was the one door the interlock did not watch. Drop that application and the tier still
+    # evaluated green while every managed instance became a custom resource with no reconciler:
+    # the exact failure the interlock exists to prevent, reached through the gap in it.
+    operator-declared-with-nothing-delivering-it =
+      lib.recursiveUpdate goodTier { nixdb.operators.op.manifests = lib.mkForce [ ]; };
   };
 
   wronglyRendered = lib.attrNames (lib.filterAttrs (_: v: v) (lib.mapAttrs (_: renders) mustFail));
@@ -212,6 +234,11 @@ let
 
     # ── The control ───────────────────────────────────────────────────────────────────────────
     "a complete tier renders" = renders goodTier;
+
+    # The delivery interlock's accepting direction. Without this, refusing every empty-`manifests`
+    # operator would pass the failing case above while making the supported shape unusable.
+    "an operator with no manifests renders once something else in the environment delivers it" =
+      renders emptyManifestsDelivered;
 
     "self-managed engines and tooling go through the app grammar" =
       sorted goodCfg.nixdb.renderedByGrammar == [ "browser" "sql" ];
