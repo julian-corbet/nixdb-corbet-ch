@@ -914,6 +914,37 @@ in
 
     applications = lib.listToAttrs (map (x: lib.nameValuePair x.name (mkDirectApp x)) directly);
 
+    # THE POSITIONS THE GRAMMAR CANNOT SEE. Everything rendered one level below the grammar holds a
+    # real slot — an operator's, a managed instance's — while never appearing in `nixk3s.apps`, which
+    # is where the band model counts occupancy from. Left unsaid, the fleet's own report advertises
+    # those numbers as FREE while they are live addresses, and the next allocation collides with a
+    # database.
+    #
+    # `addressingOf` already hands the grammar-rendered half its slot; this is the other half, and it
+    # is the same fact told to the same model in the only other way the model accepts. Conditional on
+    # `origin` for the same reason `addressingOf` is: with no origin there is no band to be counted
+    # in, and claiming a position in a space this tier was never bound to would be a lie rather than
+    # a reservation.
+    #
+    # THE SET IS "NOT RENDERED BY THE GRAMMAR", NOT "RENDERED DIRECTLY", and the difference is a real
+    # one: an operator declared with empty `manifests` renders nowhere in this module at all, yet it
+    # still HOLDS its position — ours is the cnpg at slot 100, whose chart ships from an application
+    # of the consumer's own. Keying this off `directly` would have left exactly that number reading
+    # free while an operator occupies it. A slot is held by the decision to hold it, never by whether
+    # this module happens to emit an object for it.
+    nixk3s.addressing.reservations = lib.optionalAttrs (platform.origin != null) (
+      lib.listToAttrs (map
+        (x: lib.nameValuePair x.name {
+          slot = x.w.slot;
+          origin = platform.origin;
+          note =
+            if x.kind == "operator"
+            then "${x.w.operator} operator, not rendered by the app grammar"
+            else "${x.w.engine} ${x.w.version}, a custom resource rendered below the app grammar";
+        })
+        (lib.filter (x: x.w.slot != null && !(lib.elem x byGrammar)) allWorkloads))
+    );
+
     nixidy.assertions = instanceAssertions ++ toolAssertions ++ orderingAssertions ++ tierAssertions;
     nixidy.warnings = warnings;
   };

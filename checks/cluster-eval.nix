@@ -86,6 +86,16 @@ let
 
   goodCfg = (mkEnv goodTier).config;
 
+  # The same tier, with an origin — which is what turns on both halves of the addressing story:
+  # `addressingOf` hands the grammar-rendered workloads their slot directly, and everything else
+  # has to be RESERVED, because the band model counts occupancy from `nixk3s.apps` and those
+  # workloads are not in it. Without the reservations, a fleet's own report calls a live database
+  # address free.
+  addressedTier = lib.recursiveUpdate goodTier {
+    nixdb.clusterPlatform.origin = "example-repo";
+  };
+  addressedCfg = (mkEnv addressedTier).config;
+
   # The other direction of the delivery interlock, and the one that keeps it from being a wall: the
   # SAME operator with empty `manifests`, but with the consumer delivering its chart itself as an
   # `applications.<name>` this module does not define. That is precisely what an empty `manifests`
@@ -239,6 +249,28 @@ let
     # operator would pass the failing case above while making the supported shape unusable.
     "an operator with no manifests renders once something else in the environment delivers it" =
       renders emptyManifestsDelivered;
+
+    # ── Occupancy: every position this tier holds is visible to the band model ────────────────
+    # The grammar-rendered half arrives through `addressingOf`; everything else would be invisible,
+    # so it is reserved. Asserted as the EXACT set, because a reservation missing one workload is
+    # precisely the bug this exists to prevent — one live address quietly reading as free.
+    "every workload the grammar does not render reserves its position" =
+      sorted (lib.attrNames addressedCfg.nixk3s.addressing.reservations)
+      == [ "op" "pg-newer" "pg-older" ];
+
+    "the grammar-rendered workloads are NOT reserved -- they claim their slot as apps" =
+      lib.intersectLists
+        (lib.attrNames addressedCfg.nixk3s.addressing.reservations)
+        addressedCfg.nixdb.renderedByGrammar == [ ];
+
+    "a reservation carries the tier's origin and the workload's own slot" =
+      addressedCfg.nixk3s.addressing.reservations.pg-older.slot == 34
+      && addressedCfg.nixk3s.addressing.reservations.pg-older.origin == "example-repo";
+
+    # With no origin there is no band to be counted in, so claiming a position in a space this tier
+    # was never bound to would be a lie rather than a reservation.
+    "a tier that names no origin reserves nothing" =
+      goodCfg.nixk3s.addressing.reservations == { };
 
     "self-managed engines and tooling go through the app grammar" =
       sorted goodCfg.nixdb.renderedByGrammar == [ "browser" "sql" ];
