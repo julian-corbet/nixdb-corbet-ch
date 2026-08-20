@@ -182,6 +182,12 @@
   # person lays out lives in their browser and the connections it draws are theirs rather than
   # the deployment's. Declaring it beside the browser above is what makes "backs none" a rendered
   # fact instead of a claim in a catalogue note.
+  #
+  # It is also the only workload in this file that is IDLED. Which is the point of declaring it
+  # this way: the catalogue says this software CAN be woken by an HTTP front (`idleable`), and this
+  # declaration is where somebody decides that it is, and which front does it. The engines above
+  # cannot make that choice at all -- a client on a wire protocol is never seen by a front -- and
+  # asking for it there is refused rather than rendered.
   nixdb.tools.example-schema = {
     tool = "chartdb";
     version = "0.0.0";
@@ -190,5 +196,14 @@
     createNamespace = true;
     exposure = "nb";
     slot = 41;
+
+    scaling = "scale-to-zero";
+    wake = "keda";
+
+    # The budget half of the probe split, exercised: this invented cluster's node is slower than
+    # whatever the catalogue's number was measured on, so a woken pod is given more attempts. What
+    # the probe ASKS is untouched and unreachable from here -- the path and the port stay the
+    # catalogue's, and so does the liveness probe beside it.
+    probeBudget.readiness.failureThreshold = 36;
   };
 }

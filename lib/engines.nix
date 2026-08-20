@@ -70,6 +70,27 @@
 # no conflict -- because each is a distinct Service and the number is a property of the software,
 # not of the network.
 #
+# ── AN ENGINE IS NEVER IDLED TO ZERO, AND THAT IS ABOUT THE PROTOCOL ─────────────────────────
+#
+# Scale-to-zero works because a wake front SEES a request arrive for a workload that is down, holds
+# it, starts the workload and replays it. Every front that exists does that over HTTP, because
+# holding a request at all requires understanding where one ends.
+#
+# A database is not reached that way. A client opens a connection over the engine's own wire
+# protocol -- 5432, 3306, 27017 -- to an address no HTTP front terminates, and what it gets while
+# the pod is down is a refused connection, immediately, with nothing anywhere having noticed that
+# something wanted the engine. Nor is it fixable by putting a front in front of it: a database
+# connection is long-lived and stateful, so a front would have to hold a session open across a pod
+# that does not exist yet, and the cold start it would be hiding is on the query path.
+#
+# So `idleable` is false on every operator and every engine here, and it is not a policy anybody
+# chose -- it is the protocol. It is true on both tooling entries for the mirror-image reason: HTTP
+# in, HTTP out, nothing held between requests.
+#
+# WHETHER an idleable workload is actually idled is still the consumer's decision and lives in the
+# declaration (`scaling`, and which front wakes it). This field only says whether that decision is
+# available at all.
+#
 # ── AN OPERATOR SITS BELOW THE INSTANCES IT MANAGES ────────────────────────────────────────────
 #
 # Where a fleet maps workloads onto an ordered identity space, an operator takes the position
@@ -99,7 +120,20 @@
 #   `env`          plain environment the software needs in order to run correctly at all. Never
 #                  sizing, never credentials, never an address.
 #   `args`         entrypoint arguments in the same spirit.
-#   `readiness`    probe timing, in seconds, measured rather than guessed.
+#   `readiness`    probe SHAPE and its measured budget: which endpoint answers "this is serving",
+#                  and the timing, in seconds, that a real cold start needed rather than a guess.
+#                  The budget is a MEASURED DEFAULT -- a declaration may override the timing for
+#                  hardware this was not measured on, and may never override what is asked.
+#   `liveness`     the same, for the probe whose verdict is a RESTART, or null. Null is the honest
+#                  answer for most software here and is not an omission: a liveness probe is only
+#                  knowledge when this software has a cheap endpoint that distinguishes "wedged"
+#                  from "still starting", and when it does not, a synthesized one is the classic
+#                  way to put a slow engine into a restart loop that looks like the engine's fault.
+#   `idleable`     whether this software may be idled to zero and woken on demand by an HTTP wake
+#                  front. A property of the software rather than of anybody's cluster: a front can
+#                  only hold and replay a request it can SEE, so software reached over its own wire
+#                  protocol -- or over no ingress at all -- can never be woken by one. WHETHER a
+#                  cluster idles an idleable workload is still that cluster's choice.
 #   `note`         what the entry is, and every non-obvious thing about running it.
 #
 # Group-specific:
@@ -137,6 +171,12 @@
       env = { };
       args = [ ];
       readiness = null;
+      liveness = null;
+
+      # An operator has no ingress at all -- it watches the API server and reconciles. There is no
+      # request for a wake front to hold, so idling it to zero is idling the thing that would have
+      # to notice, and every instance it manages stops being reconciled while nothing reports it.
+      idleable = false;
 
       chart = {
         repo = "https://cloudnative-pg.github.io/charts";
@@ -178,6 +218,8 @@
       env = { };
       args = [ ];
       readiness = null;
+      liveness = null;
+      idleable = false; # see below: an engine is reached over its own wire protocol
       rootSecretEnv = null; # the operator creates and rotates the credential Secret itself
 
       note = ''
@@ -221,6 +263,9 @@
         failureThreshold = 3;
       };
 
+      liveness = null; # see the note: what would answer it is an exec probe
+      idleable = false;
+
       note = ''
         MariaDB, the drop-in MySQL-protocol engine. One container, one data directory, single
         writer.
@@ -263,6 +308,9 @@
         timeoutSeconds = 5;
         failureThreshold = 3;
       };
+
+      liveness = null;
+      idleable = false;
 
       note = ''
         MongoDB. One container, one data directory, single writer.
@@ -325,6 +373,9 @@
         failureThreshold = 6;
       };
 
+      liveness = null;
+      idleable = false; # HTTP is only one of its three interfaces -- see the note
+
       note = ''
         ArcadeDB, a multi-model engine (graph, document, key-value, time-series) in one process.
 
@@ -370,6 +421,13 @@
         failureThreshold = 30;
       };
 
+      # NO LIVENESS. Its readiness probe is a TCP connect, and a TCP connect whose verdict is a
+      # RESTART is the worst of both: it cannot tell a wedged front end from a slow one, and the
+      # thing it would kill is holding an editing session in a local file.
+      liveness = null;
+
+      idleable = true;
+
       note = ''
         A database browser and SQL workspace: connects to several engines at once and gives a
         person a schema tree, a table view and a query editor over live data.
@@ -395,6 +453,12 @@
         first start has two and a half minutes. It is a front end with nothing to lose by being
         probed patiently, and an impatient probe on a slow first boot is a restart loop that looks
         like a broken image.
+
+        IT IS IDLEABLE EVEN THOUGH IT KEEPS A FILE, which is worth saying because the two facts
+        look like they should conflict. Nothing else reads that file: it is this front end's own
+        session store, it survives in whatever backs the directory, and the only thing lost by
+        idling is the seconds a woken pod spends starting. What decides `idleable` is the PROTOCOL
+        somebody arrives on, and everybody arrives here over HTTP.
       '';
     };
 
@@ -418,6 +482,31 @@
         timeoutSeconds = 1;
         failureThreshold = 24;
       };
+
+      # THE ONE ENTRY IN THIS CATALOGUE THAT EARNS A LIVENESS PROBE, and the reason is what it
+      # serves rather than how important it is. Both probes ask the same question -- GET the index
+      # -- because there is only one question to ask: the whole application is a static bundle, so
+      # a server that answers the index is working and one that does not is wedged. There is no
+      # third state for a probe to misread, which is exactly what is missing everywhere else here
+      # (an engine mid-recovery answers nothing and is fine, and killing it restarts the recovery).
+      #
+      # THE TWO BUDGETS ARE DELIBERATELY NOT SYMMETRIC. Readiness is patient because it also covers
+      # a WOKEN pod (see `idleable`) and must never be the thing that kills a cold start; liveness
+      # is impatient by comparison because by the time it is running, the process has already served
+      # the index once, so continued silence is a wedge rather than a start.
+      liveness = {
+        path = "/";
+        initialDelaySeconds = 0;
+        periodSeconds = 15;
+        timeoutSeconds = 1;
+        failureThreshold = 6;
+      };
+
+      # IT IS THE MOST IDLEABLE THING IN THIS REPOSITORY. HTTP is its only interface, every request
+      # is answered from files, and it holds nothing between requests -- so a wake front can accept
+      # a request while the pod is down, start it, and replay the request with nobody the wiser.
+      # A visualiser nobody opens most days is precisely the workload this is for.
+      idleable = true;
 
       note = ''
         A database-schema visualiser: reads a schema and draws it as a diagram you can move around,

@@ -49,6 +49,10 @@ nixdb.instances = {
           credentials = { secret = "…"; key = "…"; }; };    # by name, never by value
 };
 nixdb.tools.browser = { tool = "whodb"; version = "…"; exposure = "nb"; … };
+nixdb.tools.diagram = { tool = "chartdb"; version = "…"; exposure = "nb";
+                        scaling = "scale-to-zero"; wake = "keda";   # whether it idles, and by what
+                        probeBudget.readiness.failureThreshold = N; # the timing only, never the question
+                      };
 
 # Host plane — the clients. Four groups, ten packages, every name verified against upstream Arch,
 # the AUR and a FORCED nixpkgs attribute.
@@ -175,6 +179,34 @@ storage sizes, node selectors. Those are decisions about one site's hardware, an
 supplies what software needs in order to be *correct*, never what it needs in order to be the right
 *size*. `env` is where a consumer merges its own tuning in.
 
+## A probe, and idling, split down the same line
+
+Two places where the same term looks like one decision and is really two, and both are refused
+rather than merged.
+
+**A probe asks a question, and a cluster pays for it.** *What* it asks — which port, which path,
+and whether there is a liveness probe at all — is a property of the software and lives in the
+catalogue. A liveness probe is only knowledge when the software has an endpoint that tells a
+*wedged* process from a *starting* one: the schema visualiser has one (it serves static files, so
+answering the index is the whole health question), and almost nothing else here does, which is why
+`liveness` is null on every engine and that is a decision rather than an omission — an engine
+mid-recovery answers exactly like a dead one, and restarting it restarts the recovery. The *budget*
+— the delay, the period, the timeout, the number of failures — is measured against hardware, so the
+catalogue carries the measured default and `probeBudget` overrides the timing, per workload. It can
+never reach the port or the path: a cluster that wants a different budget has different disks, and
+a cluster that wants a different endpoint has learned something about the software and belongs in
+the catalogue. A budget for a probe the catalogue does not define is refused, because every number
+in it would reach no object.
+
+**An engine is never idled to zero, and that is about the protocol.** Scale-to-zero works because a
+wake front *sees* a request for a workload that is down, holds it, starts the workload and replays
+it — and every front that exists does that over HTTP. A client opening 5432 while the pod is asleep
+gets a refused connection immediately, with nothing anywhere having noticed that something wanted
+the engine; the pod sleeps once and stays asleep. So `idleable` is a catalogue fact (false on every
+operator and engine, true on both tooling entries), while *whether* an idleable workload is actually
+idled, and by which front, is the deployment's decision and lives in `scaling` and `wake`. Asking
+for it on an engine fails eval.
+
 ## The verification contract, and what it already found
 
 No name enters `lib/clients.nix` without passing four independent sources, because no two of them
@@ -276,13 +308,16 @@ the other way round.
 **`cluster-eval`** renders the cluster module through the real grammar and the real renderer, in
 both directions: an empty tier defines no app at all, a declared tier's whole contribution is
 exactly the workloads it declares, the engine's own knowledge reaches the grammar, a credential is a
-reference, and the two rungs of a ladder are two independent objects. Then twelve declarations that
-must each be **refused** — a managed instance with no operator, a managed instance with no resource,
-a self-managed engine passing verbatim objects, an operator ordered above its instances, an engine
-with an unbacked directory, storage with neither or both backings, a credential on an engine that
-reads none, two workloads on one slot, two workloads creating one namespace, a namespace anchored by
-a workload rendered below the grammar, a tool passing verbatim objects — against a control that must
-render. Two of those refusals
+reference, the two rungs of a ladder are two independent objects, the catalogue alone decides
+whether a liveness probe exists, and a declared budget moves the timing and nothing else. Then
+seventeen declarations that must each be **refused** — a managed instance with no operator, a
+managed instance with no resource, a self-managed engine passing verbatim objects, an operator
+ordered above its instances, an engine with an unbacked directory, storage with neither or both
+backings, a credential on an engine that reads none, two workloads on one slot, two workloads
+creating one namespace, a namespace anchored by a workload rendered below the grammar, a tool
+passing verbatim objects, an operator nothing delivers, an engine idled to zero, an operator idled
+to zero, a liveness budget for software with no liveness probe, a probe budget on a workload with no
+probes — against a control that must render. Two of those refusals
 have their *message* asserted by content, because `tryEval` can only say *that* something was
 refused.
 
@@ -294,8 +329,10 @@ others: the mount path is the *catalogue's* and the backing is the *declaration'
 `secretKeyRef` and no Secret object is ever rendered; the multi-model engine's three ports and three
 directories all land; both rungs of the ladder render exactly one object each and *no* Deployment or
 Service; server-side apply and diff are on the two directly-rendered kinds and on neither ordinary
-engine; every created Namespace carries the annotation that stops it being cascade-deleted; and no
-Service carries a pinned address, an external IP or a node port.
+engine; every created Namespace carries the annotation that stops it being cascade-deleted; the
+idled tool carries its class and its wake front as labels and renders *no* replica count while the
+always-on one beside it does; and no Service carries a pinned address, an external IP or a node
+port.
 
 ## Status
 

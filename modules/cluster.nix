@@ -12,8 +12,30 @@
 # So this module is a translator, not a renderer. What it adds is the one thing the grammar cannot
 # know: what a database IS. Which port the engine listens on, which directories it writes and what
 # is lost when one of them is not mounted, how long a cold start takes before a probe means
-# anything, which environment variable carries the root credential, which client speaks to it, and
-# which operator has to be present for its instances to be reconciled at all.
+# anything, whether a probe whose verdict is a RESTART can be answered at all, whether the software
+# can be woken by a front that only sees HTTP, which environment variable carries the root
+# credential, which client speaks to it, and which operator has to be present for its instances to
+# be reconciled at all.
+#
+# ── WHERE EACH TERM LANDS, AND WHY IT IS NEVER A MATTER OF TASTE ───────────────────────────────
+#
+# Every option here is on one of two sides, and the test is the same one every time: would this be
+# true of the software in ANYBODY's cluster?
+#
+#   KNOWLEDGE (../lib/engines.nix). The ports it listens on. The directories it writes. What a probe
+#   ASKS and whether there is one to ask -- a liveness probe is only knowledge when the software has
+#   an endpoint that tells a wedged process from a starting one, which is why most entries here have
+#   none and that is deliberate. Whether it can be idled to zero at all, which is a fact about the
+#   PROTOCOL somebody arrives on rather than about anybody's cluster.
+#
+#   VALUES (the options below). Which node path or claim backs a directory. Which Secret holds a
+#   credential. Capacity, in `env`. A probe's BUDGET, because a budget is measured against hardware
+#   and only the consumer has theirs. WHETHER an idleable workload is actually idled, and by which
+#   front, because the same software is idled in one cluster and kept warm in another.
+#
+# The two halves are deliberately not interchangeable and the module refuses the crossings: a budget
+# for a probe the catalogue does not define reaches no object and is an eval error, and asking for
+# scale-to-zero on software the catalogue says cannot be woken is refused rather than rendered.
 #
 # IMPORT THE GRAMMAR ALONGSIDE THIS MODULE. `nixk3s.apps` is declared there, not here, and a render
 # that composes this module without it fails with "the option `nixk3s.apps' does not exist". That
@@ -159,10 +181,37 @@ let
       }
     // lib.listToAttrs (map (s: lib.nameValuePair s { secret = s; envFrom = true; }) w.envFromSecrets);
 
-  probesOf = entry:
-    lib.optionalAttrs (entry.readiness != null) {
-      readiness = { port = entry.primaryPort; } // entry.readiness;
+  # THE KNOWLEDGE/VALUE SPLIT, ON A PROBE. WHAT is asked -- which port, which path, whether there
+  # is a liveness probe at all -- is the catalogue's, because it is a property of the software. The
+  # TIMING is the catalogue's MEASURED DEFAULT and the declaration's to override, because a budget
+  # is measured against hardware and only the consumer knows theirs.
+  #
+  # The override can never reach `port` or `path`, and that is the whole line: a cluster that wants
+  # a different budget has different disks, while a cluster that wants a different endpoint has
+  # discovered something about the software and belongs in the catalogue.
+  budgetedProbe = shape: over:
+    shape // lib.filterAttrs (_: v: v != null) {
+      inherit (over) initialDelaySeconds periodSeconds timeoutSeconds failureThreshold;
     };
+
+  probeOf = entry: shape: over:
+    { port = entry.primaryPort; } // budgetedProbe shape over;
+
+  probesOf = entry: w:
+    lib.optionalAttrs (entry.readiness != null)
+      { readiness = probeOf entry entry.readiness w.probeBudget.readiness; }
+    // lib.optionalAttrs (entry.liveness != null)
+      { liveness = probeOf entry entry.liveness w.probeBudget.liveness; };
+
+  # Which probes this software actually has, for the guard that refuses a budget nothing would
+  # spend. Read off the catalogue, so it is right for all three kinds of workload at once --
+  # an operator and a managed instance have none of either.
+  probeShapes = entry: {
+    readiness = entry.readiness != null;
+    liveness = entry.liveness != null;
+  };
+
+  budgetIsSet = over: lib.any (v: v != null) (lib.attrValues over);
 
   # Handed to the band model only when the consumer says it is part of the render: `origin` and
   # `slot` are ITS terms, and defining them into a render that does not declare them is an eval
@@ -183,8 +232,10 @@ let
       secrets = secretsOf entry w;
       env = entry.env // w.env;
       args = entry.args ++ w.args;
-      probes = probesOf entry;
+      probes = probesOf entry w;
+      inherit (w) scaling;
     }
+    // lib.optionalAttrs (w.wake != null) { inherit (w) wake; }
     // addressingOf w;
 
   ## ---------------------------------------------------------------------
@@ -357,6 +408,50 @@ let
       ])
     (lib.filter (x: x.kind == "tool") allWorkloads);
 
+  # THE GUARDS OVER THE TWO TERMS WHOSE HALVES LIVE ON OPPOSITE SIDES OF THE SPLIT -- whether this
+  # workload may be idled, and what a probe budget is allowed to tune. Written against every
+  # workload rather than per kind, because both read the CATALOGUE entry and every kind has one:
+  # an operator's answer to "may this be idled" is as real as an engine's.
+  classAssertions = lib.concatMap
+    (x:
+      let
+        inherit (x) name w entry;
+        shapes = probeShapes entry;
+      in
+      [
+        {
+          # A wake front holds an HTTP request and replays it. Nothing holds a connection on a wire
+          # protocol, so a sleeping engine is not woken by the client that wanted it -- it refuses
+          # the connection, instantly, and nothing anywhere records that anybody tried.
+          assertion = w.scaling != "scale-to-zero" || entry.idleable;
+          message =
+            "nixdb: ${x.kind} `${name}` asks to be idled to zero, and the software it runs cannot be woken. "
+            + "A wake front sees a request only over HTTP; this is reached over its own wire protocol, or "
+            + "over no ingress at all, so a client arriving while the pod is down gets a refused connection "
+            + "and nothing starts anything. The pod would go to sleep once and stay there. Leave `scaling` at "
+            + "`always`, and idle whatever fronts it instead.";
+        }
+        {
+          assertion = !(budgetIsSet w.probeBudget.readiness) || shapes.readiness;
+          message =
+            "nixdb: ${x.kind} `${name}` sets a readiness-probe budget, and this software has no readiness "
+            + "probe in the catalogue -- so every number in that budget would reach no object at all. A "
+            + "budget tunes a probe's TIMING; whether there is a probe to time, and what it asks, is a "
+            + "property of the software and lives in the catalogue.";
+        }
+        {
+          assertion = !(budgetIsSet w.probeBudget.liveness) || shapes.liveness;
+          message =
+            "nixdb: ${x.kind} `${name}` sets a liveness-probe budget, and this software has no liveness probe "
+            + "in the catalogue -- which for most of what this repository catalogues is deliberate rather "
+            + "than missing: a probe whose verdict is a RESTART needs an endpoint that tells a wedged "
+            + "process from a slow-starting one, and an engine mid-recovery answers exactly like a dead one. "
+            + "The budget would reach no object. If this software really does have such an endpoint, that is "
+            + "a catalogue entry, not a number here.";
+        }
+      ])
+    allWorkloads;
+
   # THE ORDERING GUARD. One pair at a time, so the refusal names both workloads and both numbers
   # rather than reporting that something, somewhere, is out of order.
   orderingAssertions = lib.concatMap
@@ -450,6 +545,15 @@ let
       directly
     ++ map
       (x: {
+        when = x.w.wake != null;
+        message =
+          "nixdb: workload `${x.name}` names the `${toString x.w.wake}` wake front, which is a term of the "
+          + "app grammar -- and this workload is rendered below the grammar, so the name reaches no object. "
+          + "Nothing will wake it, and nothing is asleep either.";
+      })
+      directly
+    ++ map
+      (x: {
         when = x.w.slot != null && platform.origin == null;
         message =
           "nixdb: workload `${x.name}` claims slot ${showSlot x.w}, and `nixdb.clusterPlatform.origin` is "
@@ -508,6 +612,50 @@ let
         description = ''
           Mount read-only. Almost never right for a database: engines write to directories that
           look read-only from outside, including the one that holds server configuration.
+        '';
+      };
+    };
+  };
+
+  # A probe's TIMING and nothing else. There is deliberately no `port` and no `path` here: those
+  # are what the probe ASKS, which is a property of the software and comes from the catalogue. Each
+  # field is null by default and null means "keep what was measured", so an override is exactly as
+  # wide as what the consumer actually knows differently.
+  probeBudgetType = lib.types.submodule {
+    options = {
+      initialDelaySeconds = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.unsigned;
+        default = null;
+        description = ''
+          Delay before the first probe. Raise it when this hardware takes longer to reach the point
+          where the catalogue's answer would even be meaningful -- probing sooner spends the failure
+          budget on a certainty.
+        '';
+      };
+
+      periodSeconds = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        description = "Interval between probes.";
+      };
+
+      timeoutSeconds = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        description = ''
+          How long one probe may take before it counts as failed. The field a busy or contended node
+          usually needs, and the one whose absence looks like a flapping workload rather than a
+          slow one.
+        '';
+      };
+
+      failureThreshold = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        description = ''
+          Consecutive failures before the verdict is acted on. Together with `periodSeconds` this is
+          how long a slow start is tolerated, and on a readiness probe it is the number that decides
+          whether a cold start is a wake or a restart loop.
         '';
       };
     };
@@ -573,6 +721,66 @@ let
         A term of the app grammar, so it reaches an object only on the workloads the grammar
         renders. On the two kinds it does not (an operator's delivery, a managed instance) a
         non-default value warns rather than pretending to do something.
+      '';
+    };
+
+    scaling = lib.mkOption {
+      type = lib.types.enum [ "always" "scale-to-zero" ];
+      default = "always";
+      description = ''
+        WHETHER this deployment idles the workload to zero and wakes it on demand. `always` is the
+        default and is the only answer for an engine.
+
+        The DECISION is a value and belongs here -- a visualiser nobody opens most days and the same
+        visualiser on a workstation somebody keeps open are the same software with different answers.
+        Whether the decision is available at all is knowledge and comes from the catalogue
+        (`idleable`): software reached over its own wire protocol can never be woken by an HTTP
+        front, so `scale-to-zero` on an engine is refused rather than rendered.
+
+        A term of the app grammar, so like `exposure` it reaches an object only on the workloads
+        that grammar renders.
+      '';
+    };
+
+    wake = lib.mkOption {
+      type = lib.types.nullOr (lib.types.enum [ "keda" "sablier" ]);
+      default = null;
+      description = ''
+        WHICH wake front brings this workload up, on the deployments that idle it. A value, and one
+        of the plainest: it names a piece of software running in somebody's cluster, and the same
+        workload is fronted by whichever one that cluster already runs.
+
+        `null` (the default) lets the app grammar pick. Meaningless without
+        `scaling = "scale-to-zero"`, and the grammar refuses it there rather than rendering a label
+        about a front that will never exist.
+      '';
+    };
+
+    probeBudget = lib.mkOption {
+      type = lib.types.submodule {
+        options = {
+          readiness = lib.mkOption {
+            type = probeBudgetType;
+            default = { };
+            description = "Timing override for the readiness probe the catalogue defines.";
+          };
+          liveness = lib.mkOption {
+            type = probeBudgetType;
+            default = { };
+            description = "Timing override for the liveness probe the catalogue defines.";
+          };
+        };
+      };
+      default = { };
+      description = ''
+        THE TIMING of this workload's probes, where this cluster's hardware differs from what the
+        catalogue measured. Only the timing: what a probe asks -- which port, which path, whether
+        there is a liveness probe at all -- is a property of the software and is not overridable
+        from here at all.
+
+        Every field defaults to null, meaning "keep the measured value", so an override says exactly
+        what the consumer knows differently and nothing more. Setting one for a probe this software
+        does not have is refused: the number would reach no object, which is worse than being told.
       '';
     };
 
@@ -839,6 +1047,19 @@ in
           state.data.hostPath = "/example/state/browser";
           envFromSecrets = [ "example-browser-connections" ];
         };
+
+        # The same kind of workload, idled. Both terms are decisions rather than facts: whether it
+        # sleeps, and which front wakes it. Whether it CAN sleep is the catalogue's answer.
+        example-diagram = {
+          tool = "chartdb";
+          version = "1.0.0";
+          exposure = "nb";
+          scaling = "scale-to-zero";
+          wake = "keda";
+          # Slower disks than whatever the catalogue's budget was measured on. The timing only:
+          # the path and the port this probe asks on are not reachable from here.
+          probeBudget.readiness.failureThreshold = 36;
+        };
       }
     '';
     type = lib.types.attrsOf (lib.types.submodule ({ name, ... }: {
@@ -945,7 +1166,8 @@ in
         (lib.filter (x: x.w.slot != null && !(lib.elem x byGrammar)) allWorkloads))
     );
 
-    nixidy.assertions = instanceAssertions ++ toolAssertions ++ orderingAssertions ++ tierAssertions;
+    nixidy.assertions =
+      instanceAssertions ++ toolAssertions ++ classAssertions ++ orderingAssertions ++ tierAssertions;
     nixidy.warnings = warnings;
   };
 }

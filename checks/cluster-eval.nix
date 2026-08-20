@@ -82,6 +82,19 @@ let
       state.data.hostPath = "/example/data/browser";
       envFromSecrets = [ "example-browser-connections" ];
     };
+    # The idled tool. Present in the CONTROL rather than only in the failing cases, because both
+    # halves of the new split need one: a workload the catalogue says may be woken, actually being
+    # woken, with one probe budget overridden and everything else about its probes untouched.
+    nixdb.tools.schema = {
+      tool = "chartdb";
+      version = "0.0.0";
+      namespace = "example-schema";
+      createNamespace = true;
+      slot = 41;
+      scaling = "scale-to-zero";
+      wake = "keda";
+      probeBudget.readiness.failureThreshold = 36;
+    };
   };
 
   goodCfg = (mkEnv goodTier).config;
@@ -193,6 +206,26 @@ let
     # the exact failure the interlock exists to prevent, reached through the gap in it.
     operator-declared-with-nothing-delivering-it =
       lib.recursiveUpdate goodTier { nixdb.operators.op.manifests = lib.mkForce [ ]; };
+
+    # AN ENGINE CANNOT BE WOKEN. A wake front holds an HTTP request; a client arriving on 3306
+    # while the pod is down gets a refused connection and nothing anywhere notices that anything
+    # wanted the engine. The pod sleeps once and stays asleep, which reads as a dead database.
+    engine-idled-to-zero =
+      lib.recursiveUpdate goodTier { nixdb.instances.sql.scaling = "scale-to-zero"; };
+
+    # Nor can the operator: it has no ingress at all, so idling it idles the only thing that would
+    # have noticed, and every instance it manages silently stops being reconciled.
+    operator-idled-to-zero =
+      lib.recursiveUpdate goodTier { nixdb.operators.op.scaling = "scale-to-zero"; };
+
+    # A budget tunes a probe's timing. For software the catalogue gives no liveness probe -- which
+    # here is deliberate rather than missing -- every number in it reaches no object.
+    liveness-budget-for-a-probe-the-software-does-not-have =
+      lib.recursiveUpdate goodTier { nixdb.tools.browser.probeBudget.liveness.periodSeconds = 20; };
+
+    # The same guard from the other side: an operator is a controller and has no probes at all.
+    probe-budget-on-a-workload-with-no-probes =
+      lib.recursiveUpdate goodTier { nixdb.operators.op.probeBudget.readiness.timeoutSeconds = 5; };
   };
 
   wronglyRendered = lib.attrNames (lib.filterAttrs (_: v: v) (lib.mapAttrs (_: renders) mustFail));
@@ -273,17 +306,17 @@ let
       goodCfg.nixk3s.addressing.reservations == { };
 
     "self-managed engines and tooling go through the app grammar" =
-      sorted goodCfg.nixdb.renderedByGrammar == [ "browser" "sql" ];
+      sorted goodCfg.nixdb.renderedByGrammar == [ "browser" "schema" "sql" ];
 
     "an operator's delivery and every managed instance go one level below it, countably" =
       sorted goodCfg.nixdb.renderedDirectly == [ "op" "pg-newer" "pg-older" ];
 
     "the two sides are disjoint and together account for every declared workload" =
       lib.intersectLists goodCfg.nixdb.renderedByGrammar goodCfg.nixdb.renderedDirectly == [ ]
-      && lib.length (goodCfg.nixdb.renderedByGrammar ++ goodCfg.nixdb.renderedDirectly) == 5;
+      && lib.length (goodCfg.nixdb.renderedByGrammar ++ goodCfg.nixdb.renderedDirectly) == 6;
 
     "the grammar receives exactly the workloads it renders, with the engine's own knowledge filled in" =
-      lib.attrNames goodCfg.nixk3s.apps == [ "browser" "sql" ]
+      lib.attrNames goodCfg.nixk3s.apps == [ "browser" "schema" "sql" ]
       && goodCfg.nixk3s.apps.sql.image == "mariadb:11.8"
       && goodCfg.nixk3s.apps.sql.ports.mysql.number == 3306
       && goodCfg.nixk3s.apps.sql.state.data.mountPath == "/var/lib/mysql"
@@ -296,6 +329,36 @@ let
     "a probe is rendered on the port the catalogue calls primary, with the engine's own timing" =
       goodCfg.nixk3s.apps.sql.probes.readiness.port == "mysql"
       && goodCfg.nixk3s.apps.sql.probes.readiness.initialDelaySeconds == 15;
+
+    # WHETHER there is a liveness probe is the catalogue's answer and nobody else's. Said in both
+    # directions in one expression, because the failure mode of getting this wrong is silent: a
+    # synthesized liveness probe on an engine that answers nothing during recovery is a restart
+    # loop that looks like the engine's fault.
+    "the catalogue decides whether a liveness probe exists at all, and what it asks" =
+      goodCfg.nixk3s.apps.schema.probes.liveness.path == "/"
+      && goodCfg.nixk3s.apps.schema.probes.liveness.port == "http"
+      && goodCfg.nixk3s.apps.schema.probes.liveness.periodSeconds == 15
+      && goodCfg.nixk3s.apps.browser.probes.liveness == null
+      && goodCfg.nixk3s.apps.sql.probes.liveness == null;
+
+    # The other half of the same split: a budget reaches the TIMING and can never become a
+    # different question. One number was overridden; the rest of the probe is still the catalogue's.
+    "a declared budget overrides the timing it names, and nothing else about the probe" =
+      goodCfg.nixk3s.apps.schema.probes.readiness.failureThreshold == 36
+      && goodCfg.nixk3s.apps.schema.probes.readiness.periodSeconds == 5
+      && goodCfg.nixk3s.apps.schema.probes.readiness.timeoutSeconds == 1
+      && goodCfg.nixk3s.apps.schema.probes.readiness.path == "/"
+      && goodCfg.nixk3s.apps.schema.probes.readiness.port == "http"
+      # and a probe nobody tuned is untouched
+      && goodCfg.nixk3s.apps.browser.probes.readiness.failureThreshold == 30;
+
+    # The catalogue says WHETHER a workload may be idled; the declaration says whether it is, and
+    # by what. Both reach the grammar, and the engine beside them is left where it has to be.
+    "an idleable workload carries the class and the front it was given" =
+      goodCfg.nixk3s.apps.schema.scaling == "scale-to-zero"
+      && goodCfg.nixk3s.apps.schema.wake == "keda"
+      && goodCfg.nixk3s.apps.sql.scaling == "always"
+      && goodCfg.nixk3s.apps.sql.wake == null;
 
     # THE LADDER. Two majors of one engine, side by side, and nothing anywhere decides which is
     # current -- both are ordinary workloads with their own identity.
@@ -311,7 +374,7 @@ let
       && goodCfg.applications.pg-newer.compareOptions.serverSideDiff == "ServerSideDiff=true";
 
     "the slot report covers every workload that claims one, on both sides of the render split" =
-      goodCfg.nixdb.slots == { op = 33; pg-older = 34; pg-newer = 35; sql = 36; browser = 40; };
+      goodCfg.nixdb.slots == { op = 33; pg-older = 34; pg-newer = 35; sql = 36; browser = 40; schema = 41; };
 
     "the operator's chart coordinates are published WITHOUT a version -- a version here would be a second pin nothing keeps honest" =
       goodCfg.nixdb.operatorCharts.op == {

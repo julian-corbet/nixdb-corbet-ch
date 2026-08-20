@@ -55,6 +55,9 @@ pkgs.runCommand "nixdb-cluster-render"
   BR_D=$manifests/example-browser/Deployment-example-browser.yaml
   BR_S=$manifests/example-browser/Service-example-browser.yaml
   BR_NS=$manifests/example-browser/Namespace-example-browser.yaml
+  BR_A=$manifests/apps/Application-example-browser.yaml
+  SCH_D=$manifests/example-schema/Deployment-example-schema.yaml
+  SCH_A=$manifests/apps/Application-example-schema.yaml
   PG_OLD=$manifests/example-pg-older/Cluster-example-pg-older.yaml
   PG_NEW=$manifests/example-pg-newer/Cluster-example-pg-newer.yaml
   PG_OLD_A=$manifests/apps/Application-example-pg-older.yaml
@@ -176,6 +179,49 @@ pkgs.runCommand "nixdb-cluster-render"
     "registry.example.com/example-org/example-browser:0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000" \
     "$(y '.spec.template.spec.containers[0].image' $BR_D)"
   check "patient first-boot budget" "30" "$(y '.spec.template.spec.containers[0].readinessProbe.failureThreshold' $BR_D)"
+
+  echo "== a probe's SHAPE is the catalogue's and its BUDGET is the declaration's =="
+  # The visualiser is the one entry that earns a liveness probe -- it serves static files, so the
+  # index answering is the whole health question and there is no third state to misread.
+  check "liveness is an HTTP GET, not a TCP connect" "/" \
+    "$(y '.spec.template.spec.containers[0].livenessProbe.httpGet.path' $SCH_D)"
+  check "liveness watches the primary port" "80" \
+    "$(y '.spec.template.spec.containers[0].livenessProbe.httpGet.port' $SCH_D)"
+  check "liveness keeps the catalogue's own timing" "15" \
+    "$(y '.spec.template.spec.containers[0].livenessProbe.periodSeconds' $SCH_D)"
+  check "liveness keeps the catalogue's own budget"  "6" \
+    "$(y '.spec.template.spec.containers[0].livenessProbe.failureThreshold' $SCH_D)"
+  # The declaration overrode ONE number. Everything else about the probe is still the catalogue's,
+  # which is the whole claim of the split: a budget cannot become a different question.
+  check "the declaration's budget reaches the readiness probe" "36" \
+    "$(y '.spec.template.spec.containers[0].readinessProbe.failureThreshold' $SCH_D)"
+  check "and the untouched fields are still the catalogue's" "5" \
+    "$(y '.spec.template.spec.containers[0].readinessProbe.periodSeconds' $SCH_D)"
+  check "including what the probe ASKS" "/" \
+    "$(y '.spec.template.spec.containers[0].readinessProbe.httpGet.path' $SCH_D)"
+  # And the software the catalogue gives no liveness probe gets none -- never synthesized.
+  check "no liveness probe on the browser" "null" \
+    "$(y '.spec.template.spec.containers[0].livenessProbe' $BR_D)"
+
+  echo "== idled to zero: the class and the front reach the objects, the replica count leaves =="
+  check "scaling class"  "scale-to-zero" "$(y '.metadata.labels."nixk3s.dev/scaling"' $SCH_D)"
+  check "wake front"     "keda"          "$(y '.metadata.labels."nixk3s.dev/wake"' $SCH_D)"
+  # A sleeping app's replica count belongs to its wake front: rendering one makes every sync fight
+  # the autoscaler over it, which is why the Application ignores that field too.
+  check "no replica count is rendered" "null" "$(y '.spec.replicas' $SCH_D)"
+  check "and the delivery tool is told to ignore it" "/spec/replicas" \
+    "$(y '.spec.ignoreDifferences[0].jsonPointers[0]' $SCH_A)"
+  # The workload beside it made the other choice, and nothing about scaling reached it.
+  check "the browser is always on"       "always" "$(y '.metadata.labels."nixk3s.dev/scaling"' $BR_D)"
+  check "so it names no wake front"      "null"   "$(y '.metadata.labels."nixk3s.dev/wake"' $BR_D)"
+  check "and keeps its own replica count" "1"     "$(y '.spec.replicas' $BR_D)"
+  check "with nothing ignored"           "null"   "$(y '.spec.ignoreDifferences' $BR_A)"
+
+  echo "== an ENGINE is never idled: no scaling class but the default reaches any of them =="
+  for d in "$SQL_D" "$MM_D"; do
+    check "$(basename $d): always on" "always" "$(y '.metadata.labels."nixk3s.dev/scaling"' $d)"
+    check "$(basename $d): no wake front" "null" "$(y '.metadata.labels."nixk3s.dev/wake"' $d)"
+  done
 
   echo "== NO FLEET ADDRESS REACHES ANY OBJECT: a class is a label, never a number =="
   for svc in "$SQL_S" "$MM_S" "$BR_S"; do
