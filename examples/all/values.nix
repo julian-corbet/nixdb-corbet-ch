@@ -176,4 +176,19 @@
     state.data.hostPath = "/example/state/browser";
     envFromSecrets = [ "example-browser-connections" ];
   };
+
+  # The OTHER shape of tier tooling, here so the render covers both rather than one twice: a
+  # visualiser that keeps nothing. It backs no directory and names no Secret, because what a
+  # person lays out lives in their browser and the connections it draws are theirs rather than
+  # the deployment's. Declaring it beside the browser above is what makes "backs none" a rendered
+  # fact instead of a claim in a catalogue note.
+  nixdb.tools.example-schema = {
+    tool = "chartdb";
+    version = "0.0.0";
+    image = "registry.example.com/example-org/example-schema:0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    namespace = "example-schema";
+    createNamespace = true;
+    exposure = "nb";
+    slot = 41;
+  };
 }

@@ -187,14 +187,15 @@ pkgs.runCommand "nixdb-cluster-render"
   done
 
   echo "== every Application lands in the tier's project, at the workload's own destination =="
-  for app in example-mysql example-multimodel example-browser example-pg-older example-pg-newer example-pg-operator; do
+  for app in example-mysql example-multimodel example-browser example-schema example-pg-older example-pg-newer example-pg-operator; do
     check "$app project" "example-data" "$(y '.spec.project' $manifests/apps/Application-$app.yaml)"
   done
   check "browser destination" "example-browser" "$(y '.spec.destination.namespace' $manifests/apps/Application-example-browser.yaml)"
+  check "schema destination"  "example-schema"  "$(y '.spec.destination.namespace' $manifests/apps/Application-example-schema.yaml)"
   check "engine destination"  "example-dbs"     "$(y '.spec.destination.namespace' $SQL_A)"
 
   echo "== the render split is countable, and the untyped side is the smaller one =="
-  check "rendered by the grammar" "example-browser example-multimodel example-mysql" "$byGrammar"
+  check "rendered by the grammar" "example-browser example-multimodel example-mysql example-schema" "$byGrammar"
   check "rendered below it"       "example-pg-newer example-pg-older example-pg-operator" "$directly"
 
   if [ "$fail" -ne 0 ]; then

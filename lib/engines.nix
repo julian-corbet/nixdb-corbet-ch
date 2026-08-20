@@ -32,12 +32,16 @@
 #     database operator is the same kind of thing, infrastructure rather than an app, and it has no
 #     home there by that repo's own contract.
 #
-#   - schema DIAGRAMMING (chartdb and its kind) is deliberately NOT here, and naming it is the
-#     point of this paragraph. A diagramming tool reads a schema once and draws it; it is a design
-#     surface for whoever writes the schema, not an operational surface for whoever runs the
-#     engine. Nothing in the tier depends on it, and it depends on the tier only in the way a
-#     screenshot depends on a screen. It sits in a different band of the cluster and is not claimed
-#     by this repository in any form.
+#   - schema DIAGRAMMING was once excluded here, on the reasoning that a diagramming tool reads a
+#     schema once and draws it -- a design surface for whoever writes the schema rather than an
+#     operational surface for whoever runs the engine. That paragraph was written on 2026-08-07 and
+#     the assignment went the other way the next day: a schema visualiser is database TOOLING, it
+#     pairs with the browser below rather than with the platform cockpit it had been filed under,
+#     and it moved bands to sit with this tier. `chartdb` is therefore in `tooling`, not excluded.
+#
+#     What the old paragraph got right is still true and is why it is `tooling` and not an engine:
+#     nothing in the tier depends on it, and it depends on the tier only in the way a screenshot
+#     depends on a screen.
 #
 # The one entry that sits closest to that boundary is the database BROWSER in `tooling` below, and
 # the difference is not the direction it points -- both read a schema -- but what it is for: a
@@ -391,6 +395,58 @@
         first start has two and a half minutes. It is a front end with nothing to lose by being
         probed patiently, and an impatient probe on a slow first boot is a restart loop that looks
         like a broken image.
+      '';
+    };
+
+    chartdb = {
+      image = "ghcr.io/chartdb/chartdb";
+      ports.http = 80;
+      primaryPort = "http";
+
+      # NOTHING. Stated as an empty set rather than omitted, because the tool assertion compares
+      # the directories a declaration backs against the directories the catalogue says are
+      # written -- an absent `state` would throw there instead of asserting "backs none".
+      state = { };
+
+      env = { };
+      args = [ ];
+
+      readiness = {
+        path = "/";
+        initialDelaySeconds = 0;
+        periodSeconds = 5;
+        timeoutSeconds = 1;
+        failureThreshold = 24;
+      };
+
+      note = ''
+        A database-schema visualiser: reads a schema and draws it as a diagram you can move around,
+        so a person can see the shape of a database rather than read it a table at a time.
+
+        WHY IT IS TIER TOOLING AND NOT AN ORDINARY APPLICATION -- the same test the browser above
+        passes, reached from the other direction. It has no domain of its own and nothing in the
+        tier depends on it; it depends on the tier the way a screenshot depends on a screen. That
+        is exactly the relationship that makes something tooling, and it is why it pairs with the
+        browser rather than with the platform cockpit it was originally filed under.
+
+        IT KEEPS NOTHING. The whole application is a static single-page bundle that runs in the
+        browser: what a person lays out lives in that browser's local storage or in a file they
+        export, and the container serves assets and holds no copy of any of it. So a restart costs
+        unsaved work and never anything durable, there is no directory to back, and the workload is
+        genuinely replaceable rather than merely small. Declaring no state is also what keeps it off
+        the single-writer handling every stateful workload in this repository gets.
+
+        ITS CONNECTIONS ARE THE READER'S, NOT THE DEPLOYMENT'S, which is the sharpest difference
+        from the browser above. That one holds saved connections server-side and needs a Secret and
+        an encryption key; this one is handed a schema by whoever is looking at it and stores no
+        credential anywhere. There is nothing here for a Secret to carry.
+
+        THE READINESS BUDGET IS WIDE FOR A DIFFERENT REASON than the browser's. Serving static
+        files is instant, so a cold process is ready almost immediately -- but this is the kind of
+        workload that is idled to zero when nobody is looking, and a probe that runs while a woken
+        pod is still starting must not be the thing that kills it. Two minutes of five-second
+        periods costs nothing on a fast start and is the difference between a wake and a restart
+        loop on a slow one.
       '';
     };
   };
