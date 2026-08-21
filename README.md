@@ -96,6 +96,16 @@ Those two also carry **server-side apply and server-side diff**, and that is not
 operator's custom resource definitions are large enough that a client-side apply overruns the
 262144-byte annotation Kubernetes keeps the last-applied state in, and the apply simply fails.
 
+The workloads the grammar *does* render reach the same two settings through `adopt`, per workload
+and defaulting to false — and there it is a **decision** rather than a physical limit. Whether an
+object with a workload's identity is already in the cluster is that cluster's **history**, never a
+property of the software: the same engine at the same version is taken over where it has been
+running for a year and created fresh where the cluster is a week old, so it is a value on the
+declaration and could not be a catalogue entry. It matters most on exactly what this repository
+declares — a rendered spec is never byte-identical to the YAML it replaces, and durable state
+forces `Recreate`, so the diff a client-side apply invents against a live object is a database
+going down rather than a rollout nobody notices.
+
 ## One engine is not one version
 
 The hardest-won thing here, and the reason **no entry in the catalogue carries a version** and

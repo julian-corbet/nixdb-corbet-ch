@@ -14,7 +14,7 @@
 #   - a self-managed engine, rendered in full by the app grammar, on node-path state, with a root
 #     credential by reference and the namespace anchor;
 #   - a third engine whose wire protocol is not its own product, exposing three ports and writing
-#     three separate directories;
+#     three separate directories, and ADOPTING an object this invented cluster already runs;
 #   - tier tooling, in its own namespace, reachable to something outside the cluster, consuming a
 #     Secret wholesale and pinned by digest.
 {
@@ -148,10 +148,18 @@
     # Three ports, three separate state directories, and a wire protocol that is not its own
     # product. Its extra JVM configuration is capacity plus the indirection its own note describes,
     # so it arrives as plain environment from here.
+    #
+    # It is also the one workload in this file that TAKES OVER an object already running in the
+    # invented cluster -- which is the case this term exists for, and the case it costs the most to
+    # get wrong. Its state is durable, so the deployment is `Recreate`: the old pod stops before the
+    # new one starts, and any diff a client-side apply invented against a spec it did not render
+    # would be that engine going down rather than a rollout nobody notices. Nothing about the
+    # SOFTWARE changes here; what changes is that this particular cluster already had one.
     example-multimodel = {
       engine = "arcadedb";
       version = "26.5.1";
       slot = 37;
+      adopt = true;
       state = {
         data.hostPath = "/example/state/multimodel/databases";
         config = { hostPath = "/example/state/multimodel/config"; hostPathType = "DirectoryOrCreate"; };

@@ -81,6 +81,12 @@ let
       slot = 40;
       state.data.hostPath = "/example/data/browser";
       envFromSecrets = [ "example-browser-connections" ];
+      # The OTHER kind the grammar renders, declared as taking over an object this invented cluster
+      # already holds. It is in the control rather than in a case of its own because there is
+      # nothing to refuse here -- adoption is a plain value with no counterpart in the catalogue to
+      # contradict -- so what has to be watched is that it reaches the grammar at all, and that it
+      # reaches nothing else.
+      adopt = true;
     };
     # The idled tool. Present in the CONTROL rather than only in the failing cases, because both
     # halves of the new split need one: a workload the catalogue says may be woken, actually being
@@ -359,6 +365,16 @@ let
       && goodCfg.nixk3s.apps.schema.wake == "keda"
       && goodCfg.nixk3s.apps.sql.scaling == "always"
       && goodCfg.nixk3s.apps.sql.wake == null;
+
+    # ADOPTION IS THE RECEIVING CLUSTER'S HISTORY, and it travels to the grammar per workload. Said
+    # in both directions in one expression, because a term that leaked onto its neighbours would put
+    # a server-side diff on Applications nobody asked to adopt anything with -- and asserted on both
+    # kinds the grammar renders, a tool and an engine, since they are two option sets over one
+    # translation and only one of them was declared.
+    "taking over an existing object reaches the grammar, and only where it was declared" =
+      goodCfg.nixk3s.apps.browser.adopt == true
+      && goodCfg.nixk3s.apps.sql.adopt == false
+      && goodCfg.nixk3s.apps.schema.adopt == false;
 
     # THE LADDER. Two majors of one engine, side by side, and nothing anywhere decides which is
     # current -- both are ordinary workloads with their own identity.

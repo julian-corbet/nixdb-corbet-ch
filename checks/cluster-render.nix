@@ -12,7 +12,8 @@
 # the objects; state is backed by what the consumer supplied and mounted where the ENGINE writes;
 # a credential is a reference and never a value; the two rungs of a ladder are two independent
 # objects in one namespace; whatever cannot be expressed as an app passes through verbatim, with
-# server-side apply, and is countable.
+# server-side apply, and is countable; and a workload declared to take over an object the cluster
+# already holds renders the Application that can, while its neighbours do not.
 { pkgs, lib, env }:
 
 pkgs.runCommand "nixdb-cluster-render"
@@ -52,6 +53,7 @@ pkgs.runCommand "nixdb-cluster-render"
   SQL_NS=$manifests/example-mysql/Namespace-example-dbs.yaml
   MM_D=$manifests/example-multimodel/Deployment-example-multimodel.yaml
   MM_S=$manifests/example-multimodel/Service-example-multimodel.yaml
+  MM_A=$manifests/apps/Application-example-multimodel.yaml
   BR_D=$manifests/example-browser/Deployment-example-browser.yaml
   BR_S=$manifests/example-browser/Service-example-browser.yaml
   BR_NS=$manifests/example-browser/Namespace-example-browser.yaml
@@ -155,6 +157,20 @@ pkgs.runCommand "nixdb-cluster-render"
   check "newer: SSD" "ServerSideDiff=true"  "$(y '.metadata.annotations."argocd.argoproj.io/compare-options"' $PG_NEW_A)"
   check "and NOT on an ordinary rendered engine" "null" "$(y '.spec.syncPolicy.syncOptions' $SQL_A)"
   check "nor its compare options"                "null" "$(y '.metadata.annotations' $SQL_A)"
+
+  echo "== ADOPTION: a grammar-rendered engine taking over an object the cluster already runs =="
+  # The other route to the same two settings, and the one that is a DECISION rather than a physical
+  # limit: this engine is rendered in full by the app grammar, and the declaration says the cluster
+  # already has one. Client-side apply would diff a spec it did not render against a live object,
+  # and this engine's state forces `Recreate` -- so that diff is downtime rather than a rollout.
+  check "adopting: SSA" "ServerSideApply=true" "$(y '.spec.syncPolicy.syncOptions[0]' $MM_A)"
+  check "adopting: SSD" "ServerSideDiff=true"  "$(y '.metadata.annotations."argocd.argoproj.io/compare-options"' $MM_A)"
+  # And the workloads that did NOT ask reach neither, on either kind the grammar renders -- an
+  # engine ($SQL_A, above) and a tool. A term that leaked onto its neighbours would put a
+  # server-side diff on every Application in the tier and nothing would ever say so.
+  check "a tool that adopts nothing: no sync options" "null" "$(y '.spec.syncPolicy.syncOptions' $BR_A)"
+  check "a tool that adopts nothing: no compare options" "null" \
+    "$(y '.metadata.annotations."argocd.argoproj.io/compare-options"' $BR_A)"
 
   echo "== the operator's own chart output passes through verbatim =="
   present "operator Deployment"     "$OP_D"

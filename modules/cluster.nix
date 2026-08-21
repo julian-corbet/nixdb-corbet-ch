@@ -31,7 +31,11 @@
 #   VALUES (the options below). Which node path or claim backs a directory. Which Secret holds a
 #   credential. Capacity, in `env`. A probe's BUDGET, because a budget is measured against hardware
 #   and only the consumer has theirs. WHETHER an idleable workload is actually idled, and by which
-#   front, because the same software is idled in one cluster and kept warm in another.
+#   front, because the same software is idled in one cluster and kept warm in another. And whether
+#   an object with this workload's identity is ALREADY THERE (`adopt`), because that is the
+#   receiving cluster's history rather than anything true of the software: the same engine at the
+#   same version is taken over in the cluster that has been running it for a year and created fresh
+#   in the one being built this week.
 #
 # The two halves are deliberately not interchangeable and the module refuses the crossings: a budget
 # for a probe the catalogue does not define reaches no object and is an eval error, and asking for
@@ -234,6 +238,10 @@ let
       args = entry.args ++ w.args;
       probes = probesOf entry w;
       inherit (w) scaling;
+      # Straight through, because the term is the grammar's and the ANSWER is the consumer's
+      # cluster's history. Nothing here can derive it: no catalogue entry knows what is already
+      # running in somebody's cluster.
+      inherit (w) adopt;
     }
     // lib.optionalAttrs (w.wake != null) { inherit (w) wake; }
     // addressingOf w;
@@ -753,6 +761,40 @@ let
         `null` (the default) lets the app grammar pick. Meaningless without
         `scaling = "scale-to-zero"`, and the grammar refuses it there rather than rendering a label
         about a front that will never exist.
+      '';
+    };
+
+    adopt = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        WHETHER an object with this workload's identity is ALREADY IN the cluster this render lands
+        on -- applied by an addon, by hand, or by the manifest tree this declaration replaces. It
+        renders the Application with server-side apply and server-side diff, so the delivery tool
+        compares against what the API server actually holds rather than against a client-side
+        reconstruction of it.
+
+        A VALUE, and one of the plainest ones here: whether an object already exists is the
+        receiving cluster's HISTORY, never a property of the software. The same engine at the same
+        version is taken over in one cluster and created fresh in another, and those two
+        declarations differ here and nowhere else -- which is exactly why no catalogue entry could
+        carry it.
+
+        IT MATTERS MOST ON PRECISELY WHAT THIS REPOSITORY DECLARES. A rendered spec is never
+        byte-identical to the YAML it replaces -- labels differ, fields this grammar sets appear,
+        fields it does not set disappear -- and durable `state` forces `Recreate`, which stops the
+        old pod before starting the new one. So the diff a client-side apply invents is not a
+        rollout nobody notices here, it is a database going down. Server-side apply and diff shrink
+        that diff to what genuinely changed, which is what makes an in-place adoption possible at
+        all; it does not make it zero. Render it, diff it against what is live, and decide
+        knowingly.
+
+        A term of the app grammar, so it reaches an object only on the workloads the grammar
+        renders. On the two kinds it does not -- an operator's delivery, a managed instance --
+        server-side apply is UNCONDITIONAL and this term is neither read nor needed: a custom
+        resource definition overruns the 262144-byte annotation a client-side apply keeps its last
+        state in, so there is no version of those two that is applied any other way. Leaving this
+        at its default there does not turn that off.
       '';
     };
 
